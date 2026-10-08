@@ -39,6 +39,13 @@ impl Paths {
         self.versions_dir().join(id).join(format!("{id}.jar"))
     }
 
+    /// e.g. `versions/fabric-0.16.10-1.21.4/profile.json`.
+    pub fn loader_profile(&self, loader: &str, minecraft: &str, loader_version: &str) -> PathBuf {
+        self.versions_dir()
+            .join(format!("{loader}-{loader_version}-{minecraft}"))
+            .join("profile.json")
+    }
+
     pub fn natives_dir(&self, id: &str) -> PathBuf {
         self.versions_dir().join(id).join("natives")
     }

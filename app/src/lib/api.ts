@@ -1,11 +1,22 @@
 // Typed wrappers around the Rust commands in src-tauri/src/commands.rs.
 import { invoke } from "@tauri-apps/api/core";
 
+export type Loader = "vanilla" | "fabric" | "quilt";
+
+export const LOADER_NAMES: Record<Loader, string> = {
+  vanilla: "Vanilla",
+  fabric: "Fabric",
+  quilt: "Quilt",
+};
+
+export type LoaderVersion = { version: string; stable: boolean };
+
 export type Instance = {
   id: string;
   name: string;
   gameVersion: string;
-  loader: "vanilla";
+  loader: Loader;
+  loaderVersion: string | null;
   memoryMb: number | null;
   /** Unix seconds. */
   created: number;
@@ -35,11 +46,13 @@ export type LogLine = {
 
 export const api = {
   listVersions: (snapshots: boolean) => invoke<VersionInfo[]>("list_versions", { snapshots }),
+  listLoaderVersions: (loader: Loader, gameVersion: string) =>
+    invoke<LoaderVersion[]>("list_loader_versions", { loader, gameVersion }),
   listInstances: () => invoke<Instance[]>("list_instances"),
-  createInstance: (name: string, gameVersion: string) =>
-    invoke<Instance>("create_instance", { name, gameVersion }),
+  createInstance: (name: string, gameVersion: string, loader: Loader, loaderVersion: string | null) =>
+    invoke<Instance>("create_instance", { name, gameVersion, loader, loaderVersion }),
   deleteInstance: (id: string) => invoke<void>("delete_instance", { id }),
-  openInstanceFolder: (id: string) => invoke<void>("open_instance_folder", { id }),
+  openInstanceFolder: (id: string, mods = false) => invoke<void>("open_instance_folder", { id, mods }),
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings: Settings) => invoke<Settings>("save_settings", { settings }),
   launchInstance: (id: string) => invoke<void>("launch_instance", { id }),

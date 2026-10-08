@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IoContext, Result, parse_json};
+use crate::loaders::{GameVersion, Loader};
 use crate::paths::Paths;
 
 const META_FILE: &str = "instance.json";
@@ -22,6 +23,9 @@ pub struct Instance {
     pub game_version: String,
     #[serde(default)]
     pub loader: Loader,
+    /// Pinned so the instance doesn't change under the player's mods.
+    #[serde(default)]
+    pub loader_version: Option<String>,
     /// `None` means "use the global default".
     #[serde(default)]
     pub memory_mb: Option<u32>,
@@ -31,11 +35,14 @@ pub struct Instance {
     pub last_played: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Loader {
-    #[default]
-    Vanilla,
+impl Instance {
+    pub fn game(&self) -> GameVersion {
+        GameVersion {
+            minecraft: self.game_version.clone(),
+            loader: self.loader,
+            loader_version: self.loader_version.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -102,7 +109,8 @@ impl InstanceStore {
         Ok(instance)
     }
 
-    pub async fn create(&self, name: &str, game_version: &str) -> Result<Instance> {
+    /// `game.loader_version` must already be resolved for modded instances.
+    pub async fn create(&self, name: &str, game: GameVersion) -> Result<Instance> {
         let name = name.trim();
         let base = slugify(name);
         let mut id = base.clone();
@@ -113,9 +121,10 @@ impl InstanceStore {
         }
         let instance = Instance {
             id,
-            name: if name.is_empty() { game_version.to_string() } else { name.to_string() },
-            game_version: game_version.to_string(),
-            loader: Loader::Vanilla,
+            name: if name.is_empty() { game.minecraft.clone() } else { name.to_string() },
+            game_version: game.minecraft,
+            loader: game.loader,
+            loader_version: game.loader_version.filter(|_| game.loader != Loader::Vanilla),
             memory_mb: None,
             created: now(),
             last_played: None,
@@ -206,11 +215,24 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = InstanceStore::new(&Paths::new(tmp.path()));
 
-        let a = store.create("Survival", "1.21").await.unwrap();
-        let b = store.create("Survival", "1.20.1").await.unwrap();
+        let a = store.create("Survival", GameVersion::vanilla("1.21")).await.unwrap();
+        let b = store
+            .create(
+                "Survival",
+                GameVersion {
+                    minecraft: "1.20.1".into(),
+                    loader: Loader::Fabric,
+                    loader_version: Some("0.16.10".into()),
+                },
+            )
+            .await
+            .unwrap();
         assert_eq!(a.id, "survival");
         assert_eq!(b.id, "survival-2");
         assert!(store.game_dir(&a).unwrap().is_dir());
+        let reloaded = store.get("survival-2").await.unwrap();
+        assert_eq!(reloaded.game().loader, Loader::Fabric);
+        assert_eq!(reloaded.loader_version.as_deref(), Some("0.16.10"));
 
         store.mark_played("survival").await.unwrap();
         let ids: Vec<_> = store.list().await.unwrap().into_iter().map(|i| i.id).collect();

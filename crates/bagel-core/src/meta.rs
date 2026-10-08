@@ -122,6 +122,65 @@ pub struct Library {
     pub extract: Option<Extract>,
     /// Maven repository base, used by mod loader libraries that have no `downloads`.
     pub url: Option<String>,
+    /// Mod loader metadata puts hashes on the library itself instead of `downloads`.
+    pub sha1: Option<String>,
+    pub size: Option<u64>,
+}
+
+/// A mod loader's version JSON (Fabric, Quilt): extra libraries and arguments
+/// layered on top of the vanilla version named by `inherits_from`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoaderProfile {
+    pub id: String,
+    pub inherits_from: String,
+    pub main_class: String,
+    pub arguments: Option<Arguments>,
+    pub minecraft_arguments: Option<String>,
+    #[serde(default)]
+    pub libraries: Vec<Library>,
+}
+
+impl VersionJson {
+    /// Apply a loader profile the way Mojang's launcher handles `inheritsFrom`:
+    /// the profile's libraries come first and replace vanilla copies of the same
+    /// library, arguments are appended, and the main class is swapped.
+    pub fn with_profile(mut self, profile: LoaderProfile) -> VersionJson {
+        let overridden: std::collections::HashSet<String> =
+            profile.libraries.iter().map(|l| library_key(&l.name)).collect();
+        let mut libraries = profile.libraries;
+        libraries.extend(
+            self.libraries
+                .into_iter()
+                .filter(|l| !overridden.contains(&library_key(&l.name))),
+        );
+        self.libraries = libraries;
+        self.id = profile.id;
+        self.main_class = profile.main_class;
+        if let Some(extra) = profile.arguments {
+            let args = self.arguments.get_or_insert(Arguments {
+                game: Vec::new(),
+                jvm: Vec::new(),
+            });
+            args.game.extend(extra.game);
+            args.jvm.extend(extra.jvm);
+        }
+        if profile.minecraft_arguments.is_some() {
+            self.minecraft_arguments = profile.minecraft_arguments;
+        }
+        self
+    }
+}
+
+/// `group:artifact[:classifier]`: a library's identity without its version.
+fn library_key(coord: &str) -> String {
+    let coord = coord.split_once('@').map_or(coord, |(c, _)| c);
+    let parts: Vec<&str> = coord.split(':').collect();
+    match parts.as_slice() {
+        [group, artifact, _version] => format!("{group}:{artifact}"),
+        [group, artifact, _version, classifier] => format!("{group}:{artifact}:{classifier}"),
+        _ => coord.to_string(),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -198,6 +257,60 @@ mod tests {
     #[test]
     fn maven_path_rejects_garbage() {
         assert!(maven_path("nope").is_none());
+    }
+
+    #[test]
+    fn library_keys_ignore_version() {
+        assert_eq!(library_key("org.ow2.asm:asm:9.7"), "org.ow2.asm:asm");
+        assert_eq!(
+            library_key("org.lwjgl:lwjgl:3.3.3:natives-windows"),
+            "org.lwjgl:lwjgl:natives-windows"
+        );
+    }
+
+    #[test]
+    fn profile_merges_onto_vanilla() {
+        let vanilla: VersionJson = serde_json::from_str(
+            r#"{"id":"1.21","type":"release","mainClass":"net.minecraft.client.main.Main",
+                "assets":"17","assetIndex":{"id":"17","sha1":"x","size":1,"url":"u"},
+                "arguments":{"game":["--username","${auth_player_name}"],"jvm":["-cp","${classpath}"]},
+                "libraries":[
+                  {"name":"org.ow2.asm:asm:9.3","downloads":{"artifact":{"url":"v","path":"a.jar"}}},
+                  {"name":"org.lwjgl:lwjgl:3.3.3"},
+                  {"name":"org.lwjgl:lwjgl:3.3.3:natives-windows"}
+                ]}"#,
+        )
+        .unwrap();
+        let profile: LoaderProfile = serde_json::from_str(
+            r#"{"id":"fabric-loader-0.16.10-1.21","inheritsFrom":"1.21",
+                "mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient",
+                "arguments":{"game":[],"jvm":["-DFabricMcEmu= net.minecraft.client.main.Main "]},
+                "libraries":[
+                  {"name":"org.ow2.asm:asm:9.7","url":"https://maven.fabricmc.net/","sha1":"abc","size":5},
+                  {"name":"net.fabricmc:fabric-loader:0.16.10","url":"https://maven.fabricmc.net/"}
+                ]}"#,
+        )
+        .unwrap();
+
+        let merged = vanilla.with_profile(profile);
+        let names: Vec<_> = merged.libraries.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "org.ow2.asm:asm:9.7",
+                "net.fabricmc:fabric-loader:0.16.10",
+                "org.lwjgl:lwjgl:3.3.3",
+                "org.lwjgl:lwjgl:3.3.3:natives-windows",
+            ]
+        );
+        assert_eq!(merged.id, "fabric-loader-0.16.10-1.21");
+        assert_eq!(merged.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        let args = merged.arguments.unwrap();
+        assert_eq!(args.jvm.len(), 3);
+        assert_eq!(args.game.len(), 2);
+        assert_eq!(merged.libraries[0].sha1.as_deref(), Some("abc"));
+        // Vanilla-only fields survive.
+        assert_eq!(merged.assets, "17");
     }
 
     #[test]

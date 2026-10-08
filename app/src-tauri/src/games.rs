@@ -128,7 +128,7 @@ async fn run_game(app: &AppHandle, state: &AppState, instance: &Instance) -> Res
     let progress = progress_reporter(app.clone(), id.clone());
     let mut cmd = state
         .launcher
-        .prepare_launch(&instance.game_version, &options, &progress)
+        .prepare_launch(&instance.game(), &options, &progress)
         .await
         .map_err(|e| e.to_string())?;
     let mut child = cmd

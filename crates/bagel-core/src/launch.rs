@@ -65,23 +65,31 @@ pub fn build_arguments(ctx: &LaunchContext) -> Vec<String> {
         args.push(config.argument.replace("${path}", &path(file)));
     }
 
-    match &ctx.version.arguments {
-        Some(a) => push_arguments(&mut args, &a.jvm, ctx.env),
-        None => {
-            if ctx.env.os_name == "osx" {
-                args.push("-XstartOnFirstThread".into());
-            }
-            args.extend(
-                ["-Djava.library.path=${natives_directory}", "-cp", "${classpath}"].map(String::from),
-            );
+    // Pre-1.13 versions use a plain argument string and imply the JVM
+    // arguments. A loader profile may still add structured JVM arguments.
+    let legacy = ctx
+        .version
+        .minecraft_arguments
+        .as_deref()
+        .filter(|_| ctx.version.arguments.as_ref().is_none_or(|a| a.game.is_empty()));
+
+    if legacy.is_some() {
+        if ctx.env.os_name == "osx" {
+            args.push("-XstartOnFirstThread".into());
         }
+        args.extend(
+            ["-Djava.library.path=${natives_directory}", "-cp", "${classpath}"].map(String::from),
+        );
+    }
+    if let Some(a) = &ctx.version.arguments {
+        push_arguments(&mut args, &a.jvm, ctx.env);
     }
 
     args.push(ctx.version.main_class.clone());
 
-    match (&ctx.version.arguments, &ctx.version.minecraft_arguments) {
-        (Some(a), _) => push_arguments(&mut args, &a.game, ctx.env),
-        (None, Some(legacy)) => args.extend(legacy.split_whitespace().map(String::from)),
+    match (legacy, &ctx.version.arguments) {
+        (Some(legacy), _) => args.extend(legacy.split_whitespace().map(String::from)),
+        (None, Some(a)) => push_arguments(&mut args, &a.game, ctx.env),
         (None, None) => {}
     }
 
@@ -205,5 +213,27 @@ mod tests {
         assert_eq!(args[1..4], ["-Djava.library.path=N", "-cp", "a.jar;b.jar"]);
         assert_eq!(args[4], "net.minecraft.client.main.Main");
         assert_eq!(args[5..], ["--username", "Steve", "--session", &format!("token:0:{uuid}")]);
+    }
+
+    #[test]
+    fn legacy_with_extra_loader_jvm_arguments() {
+        let v = version(&format!(
+            r#"{{{BASE},"minecraftArguments":"--username ${{auth_player_name}}",
+                "arguments":{{"jvm":["-Dloader=yes"]}}}}"#
+        ));
+        let args = run(&v);
+        assert_eq!(
+            args,
+            [
+                "-Xmx2048M",
+                "-Djava.library.path=N",
+                "-cp",
+                "a.jar;b.jar",
+                "-Dloader=yes",
+                "net.minecraft.client.main.Main",
+                "--username",
+                "Steve",
+            ]
+        );
     }
 }

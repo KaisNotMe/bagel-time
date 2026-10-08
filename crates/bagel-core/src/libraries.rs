@@ -55,14 +55,14 @@ pub fn resolve(libraries: &[Library], libraries_dir: &Path, env: &Environment) -
                 .clone()
                 .or_else(|| maven_path(&lib.name))
                 .map(|rel| job(dl, libraries_dir.join(rel))),
-            // Mod loader libraries only give a Maven repo, no hashes.
+            // Mod loader libraries give a Maven repo instead of a full URL.
             None if lib.downloads.is_none() && lib.natives.is_none() => maven_path(&lib.name).map(|rel| {
                 let base = lib.url.as_deref().unwrap_or(LIBRARIES_URL);
                 DownloadJob {
                     url: format!("{}/{rel}", base.trim_end_matches('/')),
                     path: libraries_dir.join(rel),
-                    sha1: None,
-                    size: None,
+                    sha1: lib.sha1.clone(),
+                    size: lib.size,
                 }
             }),
             None => None,

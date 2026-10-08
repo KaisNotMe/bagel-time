@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { Instance } from "$lib/api";
+  import { LOADER_NAMES, type Instance } from "$lib/api";
   import { iconFor, relativeTime } from "$lib/format";
   import { games } from "$lib/games.svelte";
 
   type Props = {
     instance: Instance;
     ondelete: () => void;
-    onopenfolder: () => void;
+    onopenfolder: (mods: boolean) => void;
   };
   let { instance, ondelete, onopenfolder }: Props = $props();
 
@@ -34,7 +34,13 @@
     <div class="icon" style:background={icon.background}>{icon.initials}</div>
     <div class="info">
       <h3 title={instance.name}>{instance.name}</h3>
-      <p class="meta">Vanilla {instance.gameVersion}</p>
+      <p
+        class="meta"
+        title={instance.loaderVersion ? `${LOADER_NAMES[instance.loader]} loader ${instance.loaderVersion}` : undefined}
+      >
+        {LOADER_NAMES[instance.loader]}
+        {instance.gameVersion}
+      </p>
       <p class="meta faint">
         {#if status?.phase === "running"}
           <span class="live"></span> Playing now
@@ -90,7 +96,10 @@
       </button>
       {#if menuOpen}
         <div class="menu" role="menu">
-          <button role="menuitem" onclick={() => ((menuOpen = false), onopenfolder())}>Open folder</button>
+          <button role="menuitem" onclick={() => ((menuOpen = false), onopenfolder(false))}>Open folder</button>
+          {#if instance.loader !== "vanilla"}
+            <button role="menuitem" onclick={() => ((menuOpen = false), onopenfolder(true))}>Open mods folder</button>
+          {/if}
           <button
             role="menuitem"
             class="danger-text"

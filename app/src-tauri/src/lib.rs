@@ -26,6 +26,7 @@ pub fn run() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::list_versions,
+            commands::list_loader_versions,
             commands::list_instances,
             commands::create_instance,
             commands::delete_instance,

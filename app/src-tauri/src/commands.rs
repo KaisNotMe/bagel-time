@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use bagel_core::account::is_valid_username;
-use bagel_core::{Instance, Settings};
+use bagel_core::{GameVersion, Instance, Loader, LoaderVersion, Settings};
 use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
@@ -61,11 +61,47 @@ pub async fn list_instances(state: State<'_>) -> CmdResult<Vec<InstanceView>> {
 }
 
 #[tauri::command]
-pub async fn create_instance(state: State<'_>, name: String, game_version: String) -> CmdResult<InstanceView> {
+pub async fn list_loader_versions(
+    state: State<'_>,
+    loader: Loader,
+    game_version: String,
+) -> CmdResult<Vec<LoaderVersion>> {
+    state
+        .launcher
+        .loader_versions(loader, &game_version)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+pub async fn create_instance(
+    state: State<'_>,
+    name: String,
+    game_version: String,
+    loader: Loader,
+    loader_version: Option<String>,
+) -> CmdResult<InstanceView> {
     if game_version.trim().is_empty() {
         return Err("Pick a Minecraft version.".into());
     }
-    let instance = state.store.create(&name, &game_version).await.map_err(err)?;
+    let loader_version = match (loader, loader_version) {
+        (Loader::Vanilla, _) => None,
+        (_, Some(v)) => Some(v),
+        (loader, None) => Some(
+            state
+                .launcher
+                .latest_stable_loader(loader, &game_version)
+                .await
+                .map_err(err)?
+                .ok_or_else(|| format!("{loader} doesn't support Minecraft {game_version} yet."))?,
+        ),
+    };
+    let game = GameVersion {
+        minecraft: game_version,
+        loader,
+        loader_version,
+    };
+    let instance = state.store.create(&name, game).await.map_err(err)?;
     Ok(view(&state, instance))
 }
 
@@ -77,10 +113,14 @@ pub async fn delete_instance(state: State<'_>, id: String) -> CmdResult<()> {
     state.store.delete(&id).await.map_err(err)
 }
 
+/// Opens the instance's game folder, or its `mods` folder, in the file manager.
 #[tauri::command]
-pub async fn open_instance_folder(app: AppHandle, state: State<'_>, id: String) -> CmdResult<()> {
+pub async fn open_instance_folder(app: AppHandle, state: State<'_>, id: String, mods: bool) -> CmdResult<()> {
     let instance = state.store.get(&id).await.map_err(err)?;
-    let dir = state.store.game_dir(&instance).map_err(err)?;
+    let mut dir = state.store.game_dir(&instance).map_err(err)?;
+    if mods {
+        dir.push("mods");
+    }
     tokio::fs::create_dir_all(&dir).await.map_err(err)?;
     app.opener()
         .open_path(dir.to_string_lossy(), None::<&str>)

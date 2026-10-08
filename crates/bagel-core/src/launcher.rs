@@ -7,7 +7,8 @@ use crate::error::{Error, IoContext, Result, parse_json};
 use crate::java::{LEGACY_COMPONENT, ensure_runtime};
 use crate::launch::{LaunchContext, build_arguments};
 use crate::libraries::{extract_natives, resolve};
-use crate::meta::{VERSION_MANIFEST_URL, VersionJson, VersionManifest};
+use crate::loaders::{self, GameVersion, Loader, LoaderVersion, profile_url};
+use crate::meta::{LoaderProfile, VERSION_MANIFEST_URL, VersionJson, VersionManifest};
 use crate::paths::Paths;
 use crate::progress::Progress;
 use crate::rules::Environment;
@@ -90,11 +91,59 @@ impl Launcher {
         parse_json(&bytes, &format!("version {id}"))
     }
 
+    /// Fetch (or reuse the cached) loader profile for a game version.
+    async fn loader_profile(&self, loader: Loader, minecraft: &str, loader_version: &str) -> Result<LoaderProfile> {
+        let path = self.paths.loader_profile(loader.slug(), minecraft, loader_version);
+        if !path.exists() {
+            let url = profile_url(loader, minecraft, loader_version)
+                .ok_or_else(|| Error::MissingLoaderVersion(loader.to_string()))?;
+            self.dl
+                .fetch(&DownloadJob {
+                    url,
+                    path: path.clone(),
+                    sha1: None,
+                    size: None,
+                })
+                .await?;
+        }
+        let bytes = tokio::fs::read(&path).await.at(&path)?;
+        let parsed = parse_json(&bytes, &format!("{loader} {loader_version} profile"));
+        if parsed.is_err() {
+            // Don't keep a bad response around; the next launch refetches it.
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+        parsed
+    }
+
+    /// The version JSON to launch: vanilla, with the loader profile applied if any.
+    async fn resolve_version(&self, game: &GameVersion) -> Result<VersionJson> {
+        let vanilla = self.version_json(&game.minecraft).await?;
+        match (game.loader, game.loader_version.as_deref()) {
+            (Loader::Vanilla, _) => Ok(vanilla),
+            (loader, Some(loader_version)) => {
+                let profile = self.loader_profile(loader, &game.minecraft, loader_version).await?;
+                Ok(vanilla.with_profile(profile))
+            }
+            (loader, None) => Err(Error::MissingLoaderVersion(loader.to_string())),
+        }
+    }
+
+    /// Loader versions available for a Minecraft version, newest first.
+    pub async fn loader_versions(&self, loader: Loader, minecraft: &str) -> Result<Vec<LoaderVersion>> {
+        loaders::loader_versions(&self.dl, loader, minecraft).await
+    }
+
+    pub async fn latest_stable_loader(&self, loader: Loader, minecraft: &str) -> Result<Option<String>> {
+        loaders::latest_stable(&self.dl, loader, minecraft).await
+    }
+
     /// Download everything a version needs: client jar, libraries, assets and Java.
     /// Files already on disk are skipped, so this is cheap to call before every launch.
-    pub async fn install(&self, id: &str, game_dir: &Path, progress: &Progress) -> Result<InstalledVersion> {
+    pub async fn install(&self, game: &GameVersion, game_dir: &Path, progress: &Progress) -> Result<InstalledVersion> {
         progress.stage("Reading version info", 0);
-        let version = self.version_json(id).await?;
+        let version = self.resolve_version(game).await?;
+        // The client jar and natives belong to the vanilla version, even when modded.
+        let id = game.minecraft.as_str();
 
         let libs = resolve(&version.libraries, &self.paths.libraries_dir(), &self.env);
         let mut jobs = libs.jobs;
@@ -147,14 +196,14 @@ impl Launcher {
     /// what to do with the game's output.
     pub async fn prepare_launch(
         &self,
-        id: &str,
+        game: &GameVersion,
         options: &LaunchOptions,
         progress: &Progress,
     ) -> Result<tokio::process::Command> {
         let game_dir = &options.game_dir;
         tokio::fs::create_dir_all(game_dir).await.at(game_dir)?;
 
-        let installed = self.install(id, game_dir, progress).await?;
+        let installed = self.install(game, game_dir, progress).await?;
         let args = build_arguments(&LaunchContext {
             version: &installed.version,
             account: &options.account,

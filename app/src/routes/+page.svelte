@@ -53,9 +53,9 @@
     }
   }
 
-  async function openFolder(id: string) {
+  async function openFolder(id: string, mods: boolean) {
     try {
-      await api.openInstanceFolder(id);
+      await api.openInstanceFolder(id, mods);
     } catch (e) {
       games.errors[id] = errorMessage(e);
     }
@@ -97,7 +97,7 @@
           <InstanceCard
             {instance}
             ondelete={() => ((deleteError = ""), (toDelete = instance))}
-            onopenfolder={() => openFolder(instance.id)}
+            onopenfolder={(mods) => openFolder(instance.id, mods)}
           />
         {/each}
       </div>

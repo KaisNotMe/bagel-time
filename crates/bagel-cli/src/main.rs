@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 use bagel_core::account::is_valid_username;
-use bagel_core::{Account, LaunchOptions, Launcher, Paths, Progress, ProgressEvent};
+use bagel_core::{Account, GameVersion, LaunchOptions, Launcher, Loader, Paths, Progress, ProgressEvent};
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -33,15 +33,29 @@ enum Command {
         #[arg(short = 'n', long, default_value_t = 15)]
         limit: usize,
     },
+    /// List Fabric or Quilt versions for a Minecraft version.
+    Loaders {
+        /// fabric or quilt.
+        loader: Loader,
+        /// Minecraft version id, or "latest".
+        version: String,
+        /// How many to show.
+        #[arg(short = 'n', long, default_value_t = 10)]
+        limit: usize,
+    },
     /// Download a version without starting it.
     Install {
         /// Version id, or "latest".
         version: String,
+        #[command(flatten)]
+        loader: LoaderArgs,
     },
     /// Download (if needed) and start a version in offline mode.
     Launch {
         /// Version id, or "latest".
         version: String,
+        #[command(flatten)]
+        loader: LoaderArgs,
         /// Offline username.
         #[arg(long, default_value = "Player")]
         name: String,
@@ -77,17 +91,28 @@ async fn main() -> anyhow::Result<()> {
                 println!("{:<24} {:<10} {}", v.id, v.kind, &v.release_time[..10]);
             }
         }
-        Command::Install { version } => {
+        Command::Loaders { loader, version, limit } => {
             let id = resolve_version(&launcher, &version).await?;
+            let versions = launcher.loader_versions(loader, &id).await?;
+            if versions.is_empty() {
+                println!("{loader} doesn't support Minecraft {id}.");
+            }
+            for v in versions.iter().take(limit) {
+                println!("{:<16} {}", v.version, if v.stable { "stable" } else { "beta" });
+            }
+        }
+        Command::Install { version, loader } => {
+            let game = resolve_game(&launcher, &version, &loader).await?;
             let (progress, bar) = progress_bar();
             launcher
-                .install(&id, &cli_game_dir(&launcher, &id), &progress)
+                .install(&game, &cli_game_dir(&launcher, &game), &progress)
                 .await?;
             bar.finish_and_clear();
-            println!("Installed {id} into {}", launcher.paths().root().display());
+            println!("Installed {} into {}", describe(&game), launcher.paths().root().display());
         }
         Command::Launch {
             version,
+            loader,
             name,
             memory,
             game_dir,
@@ -95,17 +120,17 @@ async fn main() -> anyhow::Result<()> {
             if !is_valid_username(&name) {
                 bail!("'{name}' isn't a valid username (3-16 letters, digits or _)");
             }
-            let id = resolve_version(&launcher, &version).await?;
+            let game = resolve_game(&launcher, &version, &loader).await?;
             let (progress, bar) = progress_bar();
             let options = LaunchOptions {
                 account: Account::offline(&name),
-                game_dir: game_dir.unwrap_or_else(|| cli_game_dir(&launcher, &id)),
+                game_dir: game_dir.unwrap_or_else(|| cli_game_dir(&launcher, &game)),
                 memory_mb: memory,
             };
-            let mut cmd = launcher.prepare_launch(&id, &options, &progress).await?;
+            let mut cmd = launcher.prepare_launch(&game, &options, &progress).await?;
             bar.finish_and_clear();
 
-            println!("Starting Minecraft {id} as {name}...");
+            println!("Starting {} as {name}...", describe(&game));
             let status = cmd
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
@@ -119,9 +144,49 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(clap::Args)]
+struct LoaderArgs {
+    /// vanilla, fabric or quilt.
+    #[arg(long, default_value = "vanilla")]
+    loader: Loader,
+    /// Loader version. Defaults to the newest stable one.
+    #[arg(long)]
+    loader_version: Option<String>,
+}
+
+async fn resolve_game(launcher: &Launcher, version: &str, args: &LoaderArgs) -> anyhow::Result<GameVersion> {
+    let minecraft = resolve_version(launcher, version).await?;
+    let loader_version = match (args.loader, &args.loader_version) {
+        (Loader::Vanilla, _) => None,
+        (_, Some(v)) => Some(v.clone()),
+        (loader, None) => Some(
+            launcher
+                .latest_stable_loader(loader, &minecraft)
+                .await?
+                .with_context(|| format!("{loader} doesn't support Minecraft {minecraft}"))?,
+        ),
+    };
+    Ok(GameVersion {
+        minecraft,
+        loader: args.loader,
+        loader_version,
+    })
+}
+
+fn describe(game: &GameVersion) -> String {
+    match &game.loader_version {
+        Some(v) => format!("Minecraft {} with {} {v}", game.minecraft, game.loader),
+        None => format!("Minecraft {}", game.minecraft),
+    }
+}
+
 /// The CLI keeps its game folders apart from the app's instances.
-fn cli_game_dir(launcher: &Launcher, id: &str) -> PathBuf {
-    launcher.paths().root().join("cli-games").join(id)
+fn cli_game_dir(launcher: &Launcher, game: &GameVersion) -> PathBuf {
+    let name = match game.loader {
+        Loader::Vanilla => game.minecraft.clone(),
+        loader => format!("{}-{}", loader.slug(), game.minecraft),
+    };
+    launcher.paths().root().join("cli-games").join(name)
 }
 
 async fn resolve_version(launcher: &Launcher, version: &str) -> anyhow::Result<String> {

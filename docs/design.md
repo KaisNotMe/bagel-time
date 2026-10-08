@@ -33,7 +33,7 @@ A Minecraft launcher in Rust, in the spirit of the Modrinth App and GDLauncher.
 1. ~~Vanilla launch from the CLI (offline)~~ done
 2. Microsoft login
 3. ~~Instances + Tauri UI shell~~ done
-4. Fabric and Quilt
+4. ~~Fabric and Quilt~~ done
 5. Modrinth browsing/installing + `.mrpack` import
 6. Forge and NeoForge
 7. CurseForge browsing + pack import
