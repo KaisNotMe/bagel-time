@@ -71,6 +71,10 @@ impl Paths {
         self.root.join("java").join(component)
     }
 
+    pub fn settings_file(&self) -> PathBuf {
+        self.root.join("settings.json")
+    }
+
     pub fn instances_dir(&self) -> PathBuf {
         self.root.join("instances")
     }

@@ -14,8 +14,8 @@ use crate::rules::Environment;
 
 pub struct LaunchOptions {
     pub account: Account,
-    /// Defaults to `instances/<version id>`.
-    pub game_dir: Option<PathBuf>,
+    /// Folder the game runs in (saves, options, mods).
+    pub game_dir: PathBuf,
     pub memory_mb: u32,
 }
 
@@ -47,10 +47,6 @@ impl Launcher {
 
     pub fn paths(&self) -> &Paths {
         &self.paths
-    }
-
-    pub fn default_game_dir(&self, version_id: &str) -> PathBuf {
-        self.paths.instances_dir().join(version_id)
     }
 
     /// Fetch the version list, falling back to the last cached copy when offline.
@@ -155,18 +151,15 @@ impl Launcher {
         options: &LaunchOptions,
         progress: &Progress,
     ) -> Result<tokio::process::Command> {
-        let game_dir = options
-            .game_dir
-            .clone()
-            .unwrap_or_else(|| self.default_game_dir(id));
-        tokio::fs::create_dir_all(&game_dir).await.at(&game_dir)?;
+        let game_dir = &options.game_dir;
+        tokio::fs::create_dir_all(game_dir).await.at(game_dir)?;
 
-        let installed = self.install(id, &game_dir, progress).await?;
+        let installed = self.install(id, game_dir, progress).await?;
         let args = build_arguments(&LaunchContext {
             version: &installed.version,
             account: &options.account,
             env: &self.env,
-            game_dir: &game_dir,
+            game_dir,
             assets_root: &self.paths.assets_dir(),
             game_assets: &installed.game_assets,
             libraries_dir: &self.paths.libraries_dir(),
@@ -177,7 +170,7 @@ impl Launcher {
         });
 
         let mut cmd = tokio::process::Command::new(&installed.java);
-        cmd.args(args).current_dir(&game_dir);
+        cmd.args(args).current_dir(game_dir);
         #[cfg(windows)]
         {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;

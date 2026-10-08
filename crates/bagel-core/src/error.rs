@@ -26,6 +26,9 @@ pub enum Error {
         actual: String,
     },
 
+    #[error("instance not found: {0}")]
+    InstanceNotFound(String),
+
     #[error("unknown Minecraft version: {0}")]
     UnknownVersion(String),
 

@@ -48,7 +48,7 @@ enum Command {
         /// Maximum memory in MB.
         #[arg(long, default_value_t = 4096)]
         memory: u32,
-        /// Game folder (saves, options, mods). Defaults to instances/<version>.
+        /// Game folder (saves, options, mods). Defaults to cli-games/<version>.
         #[arg(long)]
         game_dir: Option<PathBuf>,
     },
@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
             let id = resolve_version(&launcher, &version).await?;
             let (progress, bar) = progress_bar();
             launcher
-                .install(&id, &launcher.default_game_dir(&id), &progress)
+                .install(&id, &cli_game_dir(&launcher, &id), &progress)
                 .await?;
             bar.finish_and_clear();
             println!("Installed {id} into {}", launcher.paths().root().display());
@@ -99,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
             let (progress, bar) = progress_bar();
             let options = LaunchOptions {
                 account: Account::offline(&name),
-                game_dir,
+                game_dir: game_dir.unwrap_or_else(|| cli_game_dir(&launcher, &id)),
                 memory_mb: memory,
             };
             let mut cmd = launcher.prepare_launch(&id, &options, &progress).await?;
@@ -117,6 +117,11 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The CLI keeps its game folders apart from the app's instances.
+fn cli_game_dir(launcher: &Launcher, id: &str) -> PathBuf {
+    launcher.paths().root().join("cli-games").join(id)
 }
 
 async fn resolve_version(launcher: &Launcher, version: &str) -> anyhow::Result<String> {
