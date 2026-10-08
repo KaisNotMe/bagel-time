@@ -52,6 +52,10 @@ pub enum Error {
     #[error("{0}")]
     Mods(String),
 
+    /// Bad input from the user, with a message that explains it.
+    #[error("{0}")]
+    Invalid(String),
+
     #[error("background task failed: {0}")]
     Task(#[from] tokio::task::JoinError),
 }

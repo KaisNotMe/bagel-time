@@ -15,8 +15,6 @@ class Games {
   status = $state<Record<string, GameStatus>>({});
   errors = $state<Record<string, string>>({});
   logs = $state.raw<Record<string, LogLine[]>>({});
-  /** Instance whose log panel is open. */
-  logOpenFor = $state<string | null>(null);
 
   #stopping = new Set<string>();
   #pending = new Map<string, LogLine[]>();

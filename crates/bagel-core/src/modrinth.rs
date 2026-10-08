@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::download::Downloader;
 use crate::error::{Error, Result};
-use crate::loaders::{GameVersion, Loader};
+use crate::loaders::Loader;
 
 const API: &str = "https://api.modrinth.com/v2";
 
@@ -18,13 +18,17 @@ const API: &str = "https://api.modrinth.com/v2";
 pub enum ProjectType {
     Mod,
     Modpack,
+    ResourcePack,
+    Shader,
 }
 
 impl ProjectType {
-    fn slug(self) -> &'static str {
+    pub fn slug(self) -> &'static str {
         match self {
             ProjectType::Mod => "mod",
             ProjectType::Modpack => "modpack",
+            ProjectType::ResourcePack => "resourcepack",
+            ProjectType::Shader => "shader",
         }
     }
 }
@@ -58,8 +62,10 @@ pub struct SearchQuery {
     pub project_type: Option<ProjectType>,
     /// Only projects with a version for this Minecraft version.
     pub game_version: Option<String>,
-    /// Only projects that run on this loader.
+    /// Only projects that run on this loader (mods and modpacks).
     pub loader: Option<Loader>,
+    /// Only projects in all of these categories.
+    pub categories: Vec<String>,
     pub sort: SortBy,
     pub offset: u32,
     pub limit: u32,
@@ -103,6 +109,105 @@ pub struct Project {
     pub project_type: String,
 }
 
+/// Everything a project page shows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct ProjectDetails {
+    pub id: String,
+    pub slug: String,
+    pub title: String,
+    pub description: String,
+    /// Markdown.
+    #[serde(default)]
+    pub body: String,
+    pub project_type: String,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    pub downloads: u64,
+    #[serde(default)]
+    pub followers: u64,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub additional_categories: Vec<String>,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub loaders: Vec<String>,
+    pub published: String,
+    pub updated: String,
+    #[serde(default)]
+    pub license: Option<License>,
+    #[serde(default)]
+    pub client_side: Option<String>,
+    #[serde(default)]
+    pub server_side: Option<String>,
+    #[serde(default)]
+    pub source_url: Option<String>,
+    #[serde(default)]
+    pub issues_url: Option<String>,
+    #[serde(default)]
+    pub wiki_url: Option<String>,
+    #[serde(default)]
+    pub discord_url: Option<String>,
+    #[serde(default)]
+    pub gallery: Vec<GalleryImage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct License {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct GalleryImage {
+    pub url: String,
+    #[serde(default)]
+    pub featured: bool,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub ordering: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMember {
+    pub username: String,
+    pub avatar_url: Option<String>,
+    pub role: String,
+}
+
+#[derive(Deserialize)]
+struct ApiMember {
+    user: ApiUser,
+    role: String,
+}
+
+#[derive(Deserialize)]
+struct ApiUser {
+    username: String,
+    #[serde(default)]
+    avatar_url: Option<String>,
+}
+
+/// A search filter category, e.g. "optimization" for mods.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct Category {
+    /// Inline SVG markup from Modrinth.
+    pub icon: String,
+    pub name: String,
+    pub project_type: String,
+    /// Group heading, e.g. "categories", "features", "resolutions".
+    pub header: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all(serialize = "camelCase"))]
 pub struct Version {
@@ -117,6 +222,10 @@ pub struct Version {
     #[serde(default)]
     pub loaders: Vec<String>,
     pub date_published: String,
+    #[serde(default)]
+    pub downloads: u64,
+    #[serde(default)]
+    pub changelog: Option<String>,
     #[serde(default)]
     pub dependencies: Vec<Dependency>,
     pub files: Vec<VersionFile>,
@@ -220,6 +329,32 @@ impl Modrinth {
         self.dl.get_json(&Self::url(&["projects"], &[("ids", ids)])).await
     }
 
+    pub async fn project_details(&self, id_or_slug: &str) -> Result<ProjectDetails> {
+        self.dl.get_json(&Self::url(&["project", id_or_slug], &[])).await
+    }
+
+    /// The project's team, owner first.
+    pub async fn members(&self, id_or_slug: &str) -> Result<Vec<TeamMember>> {
+        let members: Vec<ApiMember> = self
+            .dl
+            .get_json(&Self::url(&["project", id_or_slug, "members"], &[]))
+            .await?;
+        let mut out: Vec<TeamMember> = members
+            .into_iter()
+            .map(|m| TeamMember {
+                username: m.user.username,
+                avatar_url: m.user.avatar_url,
+                role: m.role,
+            })
+            .collect();
+        out.sort_by_key(|m| m.role != "Owner");
+        Ok(out)
+    }
+
+    pub async fn categories(&self) -> Result<Vec<Category>> {
+        self.dl.get_json(&Self::url(&["tag", "category"], &[])).await
+    }
+
     pub async fn version(&self, id: &str) -> Result<Version> {
         self.dl.get_json(&Self::url(&["version", id], &[])).await
     }
@@ -247,9 +382,9 @@ impl Modrinth {
             .await
     }
 
-    /// Versions that fit an instance (its Minecraft version and loader).
-    pub async fn compatible_versions(&self, project: &str, game: &GameVersion) -> Result<Vec<Version>> {
-        self.project_versions(project, mod_loaders(game.loader), &[&game.minecraft])
+    /// Versions that fit a target (Minecraft version and loaders), newest first.
+    pub async fn compatible_versions(&self, project: &str, target: &Target) -> Result<Vec<Version>> {
+        self.project_versions(project, &target.loaders, &[&target.minecraft])
             .await
     }
 
@@ -269,7 +404,7 @@ impl Modrinth {
 
     /// Newest compatible version for each file, by SHA-1. Files that are
     /// already up to date map to their own version.
-    pub async fn latest_by_sha1(&self, hashes: &[String], game: &GameVersion) -> Result<HashMap<String, Version>> {
+    pub async fn latest_by_sha1(&self, hashes: &[String], target: &Target) -> Result<HashMap<String, Version>> {
         if hashes.is_empty() {
             return Ok(HashMap::new());
         }
@@ -283,8 +418,8 @@ impl Modrinth {
         let body = Body {
             hashes,
             algorithm: "sha1",
-            loaders: mod_loaders(game.loader),
-            game_versions: [&game.minecraft],
+            loaders: &target.loaders,
+            game_versions: [&target.minecraft],
         };
         self.dl
             .post_json(&Self::url(&["version_files", "update"], &[]), &body)
@@ -292,29 +427,26 @@ impl Modrinth {
     }
 
     /// Works out what to download to install a project into an instance:
-    /// the chosen (or best) version plus every required dependency that isn't
-    /// already installed. `installed` holds the project ids already present.
+    /// the chosen (or best) version plus, if `with_dependencies`, every
+    /// required dependency that isn't already installed. `installed` holds
+    /// the project ids already present.
     pub async fn plan_install(
         &self,
         project_id: &str,
         version_id: Option<&str>,
-        game: &GameVersion,
+        target: &Target,
+        with_dependencies: bool,
         installed: &HashSet<String>,
     ) -> Result<Vec<PlannedMod>> {
-        if game.loader == Loader::Vanilla {
-            return Err(Error::Mods(
-                "Vanilla instances can't load mods. Create a Fabric or Quilt instance instead.".into(),
-            ));
-        }
         let root = match version_id {
             Some(id) => self.version(id).await?,
             None => {
-                let versions = self.compatible_versions(project_id, game).await?;
+                let versions = self.compatible_versions(project_id, target).await?;
                 match pick_best(&versions) {
                     Some(v) => v.clone(),
                     None => {
                         let title = self.title_of(project_id).await;
-                        return Err(no_version(&title, game));
+                        return Err(Error::Mods(format!("{title} has no version for {}.", target.label)));
                     }
                 }
             }
@@ -324,7 +456,7 @@ impl Modrinth {
         seen.insert(root.project_id.clone());
         let mut plan = vec![PlannedMod { version: root, dependency: false }];
         let mut i = 0;
-        while i < plan.len() {
+        while with_dependencies && i < plan.len() {
             let deps = plan[i].version.dependencies.clone();
             let needed_by = plan[i].version.project_id.clone();
             i += 1;
@@ -334,7 +466,7 @@ impl Modrinth {
                         continue;
                     }
                 }
-                let version = self.dependency_version(dep, game).await?;
+                let version = self.dependency_version(dep, target).await?;
                 let Some(version) = version else {
                     let dep_title = match &dep.project_id {
                         Some(p) => self.title_of(p).await,
@@ -342,8 +474,8 @@ impl Modrinth {
                     };
                     let parent = self.title_of(&needed_by).await;
                     return Err(Error::Mods(format!(
-                        "{parent} needs {dep_title}, which has no version for {} {}.",
-                        game.loader, game.minecraft
+                        "{parent} needs {dep_title}, which has no version for {}.",
+                        target.label
                     )));
                 };
                 // Dependencies given only by version id: check the project too.
@@ -356,11 +488,11 @@ impl Modrinth {
         Ok(plan)
     }
 
-    async fn dependency_version(&self, dep: &Dependency, game: &GameVersion) -> Result<Option<Version>> {
+    async fn dependency_version(&self, dep: &Dependency, target: &Target) -> Result<Option<Version>> {
         // Prefer the newest version that fits the instance; a pinned version
         // id is often for a different loader or game version.
         if let Some(pid) = &dep.project_id {
-            let versions = self.compatible_versions(pid, game).await?;
+            let versions = self.compatible_versions(pid, target).await?;
             if let Some(v) = pick_best(&versions) {
                 return Ok(Some(v.clone()));
             }
@@ -380,18 +512,20 @@ impl Modrinth {
     }
 }
 
+/// What a project has to fit: a Minecraft version and the loaders it may use.
+#[derive(Debug, Clone)]
+pub struct Target {
+    pub minecraft: String,
+    pub loaders: Vec<&'static str>,
+    /// For messages, e.g. "Fabric 1.21.4".
+    pub label: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct PlannedMod {
     pub version: Version,
     /// Installed because something else needs it.
     pub dependency: bool,
-}
-
-fn no_version(title: &str, game: &GameVersion) -> Error {
-    Error::Mods(format!(
-        "{title} has no version for {} {}.",
-        game.loader, game.minecraft
-    ))
 }
 
 fn search_params(q: &SearchQuery) -> Vec<(&'static str, String)> {
@@ -411,6 +545,9 @@ fn search_params(q: &SearchQuery) -> Vec<(&'static str, String)> {
     } else if q.project_type == Some(ProjectType::Modpack) {
         // Only packs we can install. Forge and NeoForge join in step 6.
         facets.push(vec!["categories:fabric".into(), "categories:quilt".into()]);
+    }
+    for c in &q.categories {
+        facets.push(vec![format!("categories:{c}")]);
     }
     let mut params = vec![
         ("query", q.text.trim().to_string()),

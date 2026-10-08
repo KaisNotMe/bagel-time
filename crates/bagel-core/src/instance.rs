@@ -3,7 +3,7 @@
 //! Layout: `instances/<id>/instance.json` plus `instances/<id>/minecraft/`
 //! (saves, mods, options).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,12 @@ pub struct Instance {
     /// `None` means "use the global default".
     #[serde(default)]
     pub memory_mb: Option<u32>,
+    /// Extra JVM arguments, space separated.
+    #[serde(default)]
+    pub java_args: Option<String>,
+    /// Icon file name inside the instance folder, e.g. `icon.png`.
+    #[serde(default)]
+    pub icon: Option<String>,
     /// Unix seconds.
     pub created: u64,
     #[serde(default)]
@@ -112,13 +118,7 @@ impl InstanceStore {
     /// `game.loader_version` must already be resolved for modded instances.
     pub async fn create(&self, name: &str, game: GameVersion) -> Result<Instance> {
         let name = name.trim();
-        let base = slugify(name);
-        let mut id = base.clone();
-        let mut n = 2;
-        while tokio::fs::try_exists(self.dir.join(&id)).await.unwrap_or(false) {
-            id = format!("{base}-{n}");
-            n += 1;
-        }
+        let id = self.unique_id(name).await;
         let instance = Instance {
             id,
             name: if name.is_empty() { game.minecraft.clone() } else { name.to_string() },
@@ -126,11 +126,84 @@ impl InstanceStore {
             loader: game.loader,
             loader_version: game.loader_version.filter(|_| game.loader != Loader::Vanilla),
             memory_mb: None,
+            java_args: None,
+            icon: None,
             created: now(),
             last_played: None,
         };
         let game_dir = self.game_dir(&instance)?;
         tokio::fs::create_dir_all(&game_dir).await.at(&game_dir)?;
+        self.save(&instance).await?;
+        Ok(instance)
+    }
+
+    /// A free folder name based on `name`.
+    async fn unique_id(&self, name: &str) -> String {
+        let base = slugify(name);
+        let mut id = base.clone();
+        let mut n = 2;
+        while tokio::fs::try_exists(self.dir.join(&id)).await.unwrap_or(false) {
+            id = format!("{base}-{n}");
+            n += 1;
+        }
+        id
+    }
+
+    /// Copies an instance (worlds, mods and settings included) under a new name.
+    pub async fn duplicate(&self, id: &str, name: &str) -> Result<Instance> {
+        let mut copy = self.get(id).await?;
+        let name = name.trim();
+        copy.name = if name.is_empty() { format!("{} (copy)", copy.name) } else { name.to_string() };
+        copy.id = self.unique_id(&copy.name).await;
+        copy.created = now();
+        copy.last_played = None;
+        let (from, to) = (self.instance_dir(id)?, self.instance_dir(&copy.id)?);
+        let dest = to.clone();
+        tokio::task::spawn_blocking(move || copy_dir(&from, &dest)).await??;
+        if let Err(e) = self.save(&copy).await {
+            let _ = tokio::fs::remove_dir_all(&to).await;
+            return Err(e);
+        }
+        Ok(copy)
+    }
+
+    pub fn icon_path(&self, instance: &Instance) -> Option<PathBuf> {
+        let icon = instance.icon.as_deref()?;
+        let dir = self.instance_dir(&instance.id).ok()?;
+        Some(dir.join(icon))
+    }
+
+    /// Stores image bytes as the instance icon. `extension` is e.g. "png".
+    pub async fn set_icon(&self, id: &str, bytes: &[u8], extension: &str) -> Result<Instance> {
+        let ext = extension.to_ascii_lowercase();
+        if !ICON_EXTENSIONS.contains(&ext.as_str()) {
+            return Err(Error::Invalid(format!("Icons can be PNG, JPEG, WebP or GIF images, not .{ext}.")));
+        }
+        let mut instance = self.get(id).await?;
+        let dir = self.instance_dir(id)?;
+        if let Some(old) = self.icon_path(&instance) {
+            let _ = tokio::fs::remove_file(old).await;
+        }
+        let file = format!("icon.{ext}");
+        let path = dir.join(&file);
+        tokio::fs::write(&path, bytes).await.at(&path)?;
+        instance.icon = Some(file);
+        self.save(&instance).await?;
+        Ok(instance)
+    }
+
+    pub async fn set_icon_from_file(&self, id: &str, source: &Path) -> Result<Instance> {
+        let ext = source.extension().and_then(|e| e.to_str()).unwrap_or_default();
+        let bytes = tokio::fs::read(source).await.at(source)?;
+        self.set_icon(id, &bytes, ext).await
+    }
+
+    pub async fn clear_icon(&self, id: &str) -> Result<Instance> {
+        let mut instance = self.get(id).await?;
+        if let Some(old) = self.icon_path(&instance) {
+            let _ = tokio::fs::remove_file(old).await;
+        }
+        instance.icon = None;
         self.save(&instance).await?;
         Ok(instance)
     }
@@ -159,6 +232,23 @@ impl InstanceStore {
         let dir = self.instance_dir(id)?;
         tokio::fs::remove_dir_all(&dir).await.at(&dir)
     }
+}
+
+const ICON_EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "webp", "gif"];
+
+fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to).at(to)?;
+    for entry in std::fs::read_dir(from).at(from)? {
+        let entry = entry.at(from)?;
+        let (src, dest) = (entry.path(), to.join(entry.file_name()));
+        let kind = entry.file_type().at(&src)?;
+        if kind.is_dir() {
+            copy_dir(&src, &dest)?;
+        } else if kind.is_file() {
+            std::fs::copy(&src, &dest).at(&dest)?;
+        }
+    }
+    Ok(())
 }
 
 fn now() -> u64 {
@@ -242,6 +332,30 @@ mod tests {
         store.delete("survival-2").await.unwrap();
         assert_eq!(store.list().await.unwrap().len(), 1);
         assert!(matches!(store.get("survival-2").await, Err(Error::InstanceNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn duplicate_copies_everything_and_icons_work() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(&Paths::new(tmp.path()));
+        let a = store.create("Pack", GameVersion::vanilla("1.21")).await.unwrap();
+        let saves = store.game_dir(&a).unwrap().join("saves").join("World");
+        std::fs::create_dir_all(&saves).unwrap();
+        std::fs::write(saves.join("level.dat"), b"x").unwrap();
+        store.set_icon("pack", b"png", "PNG").await.unwrap();
+        assert!(store.set_icon("pack", b"x", "exe").await.is_err());
+
+        let b = store.duplicate("pack", "").await.unwrap();
+        assert_eq!(b.id, "pack-copy");
+        assert_eq!(b.name, "Pack (copy)");
+        assert!(b.last_played.is_none());
+        let copied = store.game_dir(&b).unwrap().join("saves").join("World").join("level.dat");
+        assert!(copied.is_file());
+        assert_eq!(std::fs::read(store.icon_path(&b).unwrap()).unwrap(), b"png");
+
+        let cleared = store.clear_icon("pack").await.unwrap();
+        assert!(cleared.icon.is_none());
+        assert!(!store.instance_dir("pack").unwrap().join("icon.png").exists());
     }
 
     #[tokio::test]

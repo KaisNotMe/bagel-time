@@ -12,6 +12,8 @@ pub struct Settings {
     /// Default max memory for instances that don't set their own.
     pub memory_mb: u32,
     pub show_snapshots: bool,
+    /// Extra JVM arguments for every instance, space separated.
+    pub java_args: String,
 }
 
 impl Default for Settings {
@@ -20,6 +22,7 @@ impl Default for Settings {
             offline_username: "Player".to_string(),
             memory_mb: 4096,
             show_snapshots: false,
+            java_args: String::new(),
         }
     }
 }
@@ -56,6 +59,7 @@ mod tests {
             offline_username: "Bagel".into(),
             memory_mb: 6144,
             show_snapshots: true,
+            java_args: String::new(),
         };
         s.save(&paths).await.unwrap();
         let loaded = Settings::load(&paths).await;

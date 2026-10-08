@@ -15,7 +15,7 @@ use crate::error::{Error, IoContext, Result, parse_json};
 use crate::instance::{Instance, InstanceStore};
 use crate::loaders::{GameVersion, Loader};
 use crate::modrinth::{Modrinth, pick_best};
-use crate::mods::InstanceMods;
+use crate::content::{ContentKind, InstanceContent};
 use crate::paths::Paths;
 use crate::progress::Progress;
 
@@ -113,7 +113,7 @@ pub fn pack_game(index: &PackIndex) -> Result<GameVersion> {
 }
 
 /// A relative path that stays inside the folder it's joined to.
-pub(crate) fn safe_relative_path(p: &str) -> Option<PathBuf> {
+pub fn safe_relative_path(p: &str) -> Option<PathBuf> {
     if p.starts_with(['/', '\\']) {
         return None;
     }
@@ -232,7 +232,9 @@ async fn fill_instance(
 
     // Names and icons are nice to have; the pack works without them.
     progress.stage("Looking up mods", 0);
-    let _ = InstanceMods::new(store, instance)?.identify(modrinth).await;
+    for kind in ContentKind::ALL {
+        let _ = InstanceContent::new(store, instance, kind)?.identify(modrinth).await;
+    }
     Ok(())
 }
 
@@ -275,7 +277,18 @@ pub async fn install_from_modrinth(
         .await?;
     let result = install_pack(store, modrinth, &tmp, progress).await;
     let _ = tokio::fs::remove_file(&tmp).await;
-    result
+    let instance = result?;
+
+    // The pack's icon is a nice touch, not a requirement.
+    if let Ok(project) = modrinth.project(project_id).await
+        && let Some(url) = project.icon_url
+        && let Some(ext) = url.rsplit_once('.').map(|(_, e)| e.to_string())
+        && let Ok(bytes) = modrinth.downloader().get_bytes(&url).await
+        && let Ok(updated) = store.set_icon(&instance.id, &bytes, &ext).await
+    {
+        return Ok(updated);
+    }
+    Ok(instance)
 }
 
 #[cfg(test)]

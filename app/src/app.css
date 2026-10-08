@@ -1,28 +1,44 @@
 :root {
-  --bg: #141110;
-  --panel: #1b1714;
-  --card: #221d19;
-  --card-hover: #29231e;
-  --line: #352d26;
-  --line-strong: #4a3f35;
+  /* Surfaces, darkest to lightest. */
+  --rail: #0f0c0b;
+  --bg: #171311;
+  --raised: #201b18;
+  --raised-2: #2a231f;
+  --raised-3: #342b26;
+  --line: #2f2722;
+  --line-strong: #463a31;
+
   --text: #f4ece2;
-  --muted: #a8998a;
-  --faint: #76695d;
+  --muted: #ab9b8c;
+  --faint: #7a6c60;
+
   --accent: #f0a83a;
   --accent-hover: #ffba52;
   --accent-ink: #2a1700;
+  --accent-soft: rgb(240 168 58 / 0.14);
   --danger: #ef5f55;
-  --danger-bg: #3a1d1a;
+  --danger-soft: rgb(239 95 85 / 0.14);
   --warn: #e9c46a;
-  --ok: #7bc47f;
+  --ok: #6fc97a;
+  --ok-soft: rgb(111 201 122 / 0.14);
+
+  --radius-sm: 8px;
   --radius: 12px;
+  --radius-lg: 18px;
+  --shadow: 0 18px 50px rgb(0 0 0 / 0.5);
   --mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+
+  /* Older names still used in a few places. */
+  --panel: var(--rail);
+  --card: var(--raised);
+  --card-hover: var(--raised-2);
+  --danger-bg: #3a1d1a;
 
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.45;
   color: var(--text);
-  background: var(--bg);
+  background: var(--rail);
   color-scheme: dark;
   -webkit-font-smoothing: antialiased;
 }
@@ -33,7 +49,7 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--rail);
   overflow: hidden;
 }
 
@@ -46,9 +62,14 @@ p {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
+}
+
+a {
+  color: var(--accent);
 }
 
 :focus-visible {
@@ -56,56 +77,139 @@ select {
   outline-offset: 2px;
 }
 
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--raised-3);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--line-strong);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 34px;
+  gap: 7px;
+  height: 36px;
   padding: 0 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--card-hover);
+  border: 0;
+  border-radius: 10px;
+  background: var(--raised-2);
   cursor: pointer;
   font-weight: 600;
   white-space: nowrap;
-  transition: background 0.12s, border-color 0.12s, transform 0.06s;
+  text-decoration: none;
+  color: var(--text);
+  transition: background 0.12s, filter 0.12s, transform 0.06s;
 }
 .btn:hover:not(:disabled) {
-  border-color: var(--faint);
+  background: var(--raised-3);
 }
 .btn:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: scale(0.97);
 }
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
 }
 .btn.primary {
   background: var(--accent);
-  border-color: var(--accent);
   color: var(--accent-ink);
 }
 .btn.primary:hover:not(:disabled) {
   background: var(--accent-hover);
-  border-color: var(--accent-hover);
 }
 .btn.danger {
   background: var(--danger);
-  border-color: var(--danger);
   color: #fff;
+}
+.btn.danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+  background: var(--danger);
+}
+.btn.danger-soft {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 .btn.ghost {
   background: transparent;
-  border-color: transparent;
 }
 .btn.ghost:hover:not(:disabled) {
-  background: var(--card-hover);
-  border-color: var(--line);
+  background: var(--raised-2);
 }
 .btn.square {
-  width: 34px;
+  width: 36px;
   padding: 0;
+}
+.btn.sm {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+.btn.sm.square {
+  width: 30px;
+  padding: 0;
+}
+.btn.lg {
+  height: 44px;
+  padding: 0 22px;
+  font-size: 15px;
+  border-radius: 12px;
+}
+
+/* Inputs */
+.input {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--raised-2);
+  min-width: 0;
+}
+textarea.input {
+  height: auto;
+  padding: 10px 12px;
+  resize: vertical;
+}
+.input::placeholder {
+  color: var(--faint);
+}
+.input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+select.input {
+  cursor: pointer;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.search-box svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--faint);
+  pointer-events: none;
+}
+.search-box .input {
+  width: 100%;
+  padding-left: 36px;
 }
 
 .field {
@@ -117,17 +221,6 @@ select {
 }
 .field small {
   color: var(--faint);
-}
-.input {
-  height: 36px;
-  padding: 0 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--bg);
-}
-.input:focus {
-  border-color: var(--accent);
-  outline: none;
 }
 
 .check {
@@ -143,10 +236,172 @@ select {
   height: 16px;
 }
 
+/* On/off switch: <label class="switch"><input type="checkbox"><span></span></label> */
+.switch {
+  position: relative;
+  flex: none;
+  display: inline-block;
+  width: 38px;
+  height: 22px;
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: inherit;
+}
+.switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--raised-3);
+  transition: background 0.15s;
+  pointer-events: none;
+}
+.switch span::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s, background 0.15s;
+}
+.switch input:checked + span {
+  background: var(--accent);
+}
+.switch input:checked + span::after {
+  transform: translateX(16px);
+  background: var(--accent-ink);
+}
+.switch input:disabled + span {
+  opacity: 0.5;
+}
+.switch input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Pill tabs and filter chips */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+.pill:hover {
+  color: var(--text);
+  background: var(--raised-2);
+}
+.pill.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.pill .count {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--raised-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tag.accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tag.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.tag.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.card {
+  border-radius: var(--radius);
+  background: var(--raised);
+}
+
 .alert {
   padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--danger-bg);
-  border: 1px solid #5b2a25;
+  border-radius: 10px;
+  background: var(--danger-soft);
   color: #ffc9c3;
+}
+.alert.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.muted {
+  color: var(--muted);
+}
+.faint {
+  color: var(--faint);
+}
+
+/* Page scaffolding: a scrolling page with a max width. */
+.page {
+  height: 100%;
+  overflow: auto;
+}
+.page-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 28px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.page-title {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+.section-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty-state h3 {
+  color: var(--text);
+  font-size: 16px;
 }

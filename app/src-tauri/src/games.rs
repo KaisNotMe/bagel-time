@@ -134,6 +134,13 @@ async fn run_game(app: &AppHandle, state: &AppState, instance: &Instance) -> Res
         account,
         game_dir: state.store.game_dir(instance).map_err(|e| e.to_string())?,
         memory_mb: instance.memory_mb.unwrap_or(settings.memory_mb),
+        // Global arguments first so the instance's own can override them.
+        extra_jvm_args: settings
+            .java_args
+            .split_whitespace()
+            .chain(instance.java_args.as_deref().unwrap_or_default().split_whitespace())
+            .map(String::from)
+            .collect(),
     };
 
     let progress = progress_reporter(app.clone(), "launch-progress", id.clone());

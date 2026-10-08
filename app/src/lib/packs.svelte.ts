@@ -1,10 +1,11 @@
 // Modpack installs (from Modrinth or a .mrpack file). One at a time; progress
-// arrives through the `pack-progress` event from src-tauri/src/mods.rs.
+// arrives through the `pack-progress` event from src-tauri/src/content.rs.
 import { goto } from "$app/navigation";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, errorMessage, type Instance } from "./api";
+import { instances } from "./instances.svelte";
 
 export type PackStatus = { name: string; stage: string; done: number; total: number };
 
@@ -14,14 +15,6 @@ class Packs {
   /** Project id being installed from Modrinth, if any. */
   installing = $state<string | null>(null);
   dragging = $state(false);
-
-  #listeners = new Set<() => void>();
-
-  /** Called after a pack becomes a new instance. */
-  onInstalled(fn: () => void) {
-    this.#listeners.add(fn);
-    return () => this.#listeners.delete(fn);
-  }
 
   get busy() {
     return this.status !== null;
@@ -60,10 +53,10 @@ class Packs {
     return this.#run(name, () => api.importMrpack(path));
   }
 
-  async installFromModrinth(projectId: string, title: string) {
+  async installFromModrinth(projectId: string, title: string, versionId: string | null = null) {
     this.installing = projectId;
     try {
-      await this.#run(title, () => api.installModpack(projectId));
+      await this.#run(title, () => api.installModpack(projectId, versionId));
     } finally {
       this.installing = null;
     }
@@ -78,7 +71,7 @@ class Packs {
     this.status = { name, stage: "Starting", done: 0, total: 0 };
     try {
       const instance = await task();
-      for (const fn of this.#listeners) fn();
+      await instances.refresh();
       await goto(`/instance?id=${encodeURIComponent(instance.id)}`);
     } catch (e) {
       this.error = errorMessage(e);

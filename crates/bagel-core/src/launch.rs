@@ -20,6 +20,8 @@ pub struct LaunchContext<'a> {
     pub classpath: &'a [PathBuf],
     pub log_config: Option<&'a Path>,
     pub memory_mb: u32,
+    /// Added after the memory setting, so they can override it.
+    pub extra_jvm_args: &'a [String],
 }
 
 /// Every argument after the java executable, with `${...}` placeholders filled in.
@@ -58,6 +60,7 @@ pub fn build_arguments(ctx: &LaunchContext) -> Vec<String> {
     ]);
 
     let mut args = vec![format!("-Xmx{}M", ctx.memory_mb)];
+    args.extend(ctx.extra_jvm_args.iter().cloned());
     if let (Some(config), Some(file)) = (
         ctx.version.logging.as_ref().and_then(|l| l.client.as_ref()),
         ctx.log_config,
@@ -147,6 +150,10 @@ mod tests {
         "assets":"17","assetIndex":{"id":"17","sha1":"x","size":1,"url":"u"}"#;
 
     fn run(v: &VersionJson) -> Vec<String> {
+        run_with(v, &[])
+    }
+
+    fn run_with(v: &VersionJson, extra: &[String]) -> Vec<String> {
         let env = Environment {
             os_name: "windows".into(),
             arch: "x86_64".into(),
@@ -166,6 +173,7 @@ mod tests {
             classpath: &cp,
             log_config: None,
             memory_mb: 2048,
+            extra_jvm_args: extra,
         })
     }
 
@@ -201,6 +209,13 @@ mod tests {
                 "17",
             ]
         );
+    }
+
+    #[test]
+    fn extra_jvm_arguments_follow_memory() {
+        let v = version(&format!(r#"{{{BASE},"arguments":{{"jvm":[],"game":[]}}}}"#));
+        let args = run_with(&v, &["-Xmx8G".into(), "-XX:+UseZGC".into()]);
+        assert_eq!(&args[..3], ["-Xmx2048M", "-Xmx8G", "-XX:+UseZGC"]);
     }
 
     #[test]

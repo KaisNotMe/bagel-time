@@ -3,6 +3,9 @@
   import { api, errorMessage, type Settings } from "$lib/api";
   import { account } from "$lib/account.svelte";
   import LoginDialog from "$lib/components/LoginDialog.svelte";
+  import { ui } from "$lib/ui.svelte";
+
+  ui.setCrumbs({ label: "Settings" });
 
   let settings = $state<Settings | null>(null);
   let saving = $state(false);
@@ -53,8 +56,9 @@
   }
 </script>
 
-<div class="scroll">
-  <h1>Settings</h1>
+<div class="page">
+<div class="page-inner narrow">
+  <h1 class="page-title">Settings</h1>
 
   <section class="accounts">
     <div class="section-head">
@@ -101,6 +105,17 @@
           <input type="range" min="1024" max="16384" step="512" bind:value={settings.memoryMb} />
           <small>4 GB suits vanilla. Big modpacks usually want 6–8 GB. Java is downloaded automatically.</small>
         </label>
+        <label class="field">
+          <span>Java arguments</span>
+          <textarea
+            class="input mono"
+            rows="2"
+            bind:value={settings.javaArgs}
+            placeholder="-XX:+UseG1GC"
+            spellcheck="false"
+          ></textarea>
+          <small>Added to every instance. An instance's own arguments come after these.</small>
+        </label>
       </section>
 
       <section>
@@ -122,6 +137,7 @@
     <p class="alert">{message.text}</p>
   {/if}
 </div>
+</div>
 
 <LoginDialog
   open={signingIn}
@@ -133,24 +149,16 @@
 />
 
 <style>
-  .scroll {
-    height: 100%;
-    overflow: auto;
-    padding: 28px 32px 40px;
+  .narrow {
+    max-width: 720px;
   }
-  h1 {
-    font-size: 26px;
-    letter-spacing: -0.3px;
-    margin-bottom: 22px;
+  .mono {
+    font-family: var(--mono);
+    font-size: 13px;
   }
   form {
     display: grid;
     gap: 16px;
-    max-width: 560px;
-  }
-  .accounts {
-    max-width: 560px;
-    margin-bottom: 16px;
   }
   .section-head {
     display: flex;
@@ -168,12 +176,11 @@
     justify-content: space-between;
     gap: 8px;
     padding: 8px 10px;
-    border: 1px solid var(--line);
     border-radius: 10px;
-    background: var(--bg);
+    background: var(--raised-2);
   }
   .account.selected {
-    border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+    box-shadow: inset 0 0 0 1.5px var(--accent);
   }
   .account label {
     display: flex;
@@ -209,9 +216,8 @@
     display: grid;
     gap: 14px;
     padding: 18px;
-    border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: var(--card);
+    background: var(--raised);
   }
   h2 {
     font-size: 15px;

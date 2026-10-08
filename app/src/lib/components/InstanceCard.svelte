@@ -1,28 +1,32 @@
 <script lang="ts">
   import { LOADER_NAMES, type Instance } from "$lib/api";
-  import { iconFor, relativeTime } from "$lib/format";
+  import { relativeTime } from "$lib/format";
   import { games } from "$lib/games.svelte";
+  import Icon from "./Icon.svelte";
+  import InstanceIcon from "./InstanceIcon.svelte";
 
   type Props = {
     instance: Instance;
-    ondelete: () => void;
-    onopenfolder: (mods: boolean) => void;
+    onmenu: (action: "folder" | "duplicate" | "settings" | "delete") => void;
   };
-  let { instance, ondelete, onopenfolder }: Props = $props();
+  let { instance, onmenu }: Props = $props();
 
   let status = $derived(games.status[instance.id]);
   let error = $derived(games.errors[instance.id]);
-  let icon = $derived(iconFor(instance.name));
+  let href = $derived(`/instance?id=${encodeURIComponent(instance.id)}`);
   let percent = $derived(
     status?.phase === "preparing" && status.total > 0
       ? Math.min(100, Math.round((status.done / status.total) * 100))
       : null,
   );
 
-  let href = $derived(`/instance?id=${encodeURIComponent(instance.id)}`);
-
   let menuOpen = $state(false);
   let menuWrap = $state<HTMLElement>();
+
+  function pick(action: Parameters<Props["onmenu"]>[0]) {
+    menuOpen = false;
+    onmenu(action);
+  }
 </script>
 
 <svelte:window
@@ -32,36 +36,63 @@
 />
 
 <article class="card" class:active={!!status}>
-  <a class="top" href={href} title="Open {instance.name}">
-    <div class="icon" style:background={icon.background}>{icon.initials}</div>
-    <div class="info">
-      <h3>{instance.name}</h3>
-      <p
-        class="meta"
-        title={instance.loaderVersion ? `${LOADER_NAMES[instance.loader]} loader ${instance.loaderVersion}` : undefined}
-      >
-        {LOADER_NAMES[instance.loader]}
-        {instance.gameVersion}
-      </p>
-      <p class="meta faint">
-        {#if status?.phase === "running"}
-          <span class="live"></span> Playing now
-        {:else}
-          {relativeTime(instance.lastPlayed)}
-        {/if}
-      </p>
-    </div>
+  <div class="icon-wrap">
+    <a {href} tabindex="-1" aria-hidden="true"><InstanceIcon {instance} size={72} radius={16} /></a>
+    {#if status?.phase === "running"}
+      <button class="fab stop" aria-label="Stop {instance.name}" onclick={() => games.stop(instance.id)}>
+        <Icon name="stop" size={14} fill />
+      </button>
+    {:else if !status}
+      <button class="fab play" aria-label="Play {instance.name}" onclick={() => games.launch(instance.id)}>
+        <Icon name="play" size={16} fill />
+      </button>
+    {/if}
+  </div>
+
+  <a class="info" {href}>
+    <h3 title={instance.name}>{instance.name}</h3>
+    <p class="meta">
+      <Icon name={instance.loader === "vanilla" ? "box" : "puzzle"} size={13} />
+      {LOADER_NAMES[instance.loader]}
+      {instance.gameVersion}
+    </p>
+    <p class="meta faint">
+      {#if status?.phase === "running"}
+        <span class="live"></span> Playing now
+      {:else if status}
+        {status.stage || "Starting"}{percent !== null ? ` · ${percent}%` : ""}
+      {:else}
+        {relativeTime(instance.lastPlayed)}
+      {/if}
+    </p>
   </a>
 
+  <div class="menu-wrap" bind:this={menuWrap}>
+    <button
+      class="btn ghost sm square"
+      aria-label="More actions for {instance.name}"
+      aria-expanded={menuOpen}
+      onclick={() => (menuOpen = !menuOpen)}
+    >
+      <Icon name="more" size={20} stroke={3} />
+    </button>
+    {#if menuOpen}
+      <div class="menu" role="menu">
+        <button role="menuitem" onclick={() => pick("settings")}><Icon name="settings" size={15} /> Settings</button>
+        <button role="menuitem" onclick={() => pick("folder")}><Icon name="folder" size={15} /> Open folder</button>
+        <button role="menuitem" disabled={!!status} onclick={() => pick("duplicate")}>
+          <Icon name="copyplus" size={15} /> Duplicate
+        </button>
+        <button role="menuitem" class="danger-text" disabled={!!status} onclick={() => pick("delete")}>
+          <Icon name="trash" size={15} /> Delete…
+        </button>
+      </div>
+    {/if}
+  </div>
+
   {#if status?.phase === "preparing"}
-    <div class="progress" aria-live="polite">
-      <div class="progress-label">
-        <span>{status.stage}</span>
-        {#if percent !== null}<span>{percent}%</span>{/if}
-      </div>
-      <div class="bar">
-        <div class="fill" class:indeterminate={percent === null} style:width="{percent ?? 35}%"></div>
-      </div>
+    <div class="bar" aria-hidden="true">
+      <div class="fill" class:indeterminate={percent === null} style:width="{percent ?? 35}%"></div>
     </div>
   {/if}
 
@@ -71,97 +102,71 @@
       <button class="link" onclick={() => games.dismissError(instance.id)}>Dismiss</button>
     </div>
   {/if}
-
-  <div class="actions">
-    {#if status?.phase === "running"}
-      <button class="btn danger grow" onclick={() => games.stop(instance.id)}>Stop</button>
-    {:else}
-      <button class="btn primary grow" disabled={!!status} onclick={() => games.launch(instance.id)}>
-        {status ? "Starting…" : "Play"}
-      </button>
-    {/if}
-    <button
-      class="btn square"
-      title="Game log"
-      aria-label="Game log"
-      onclick={() => (games.logOpenFor = instance.id)}
-    >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-        <path d="M3 4h10M3 8h10M3 12h6" stroke-linecap="round" />
-      </svg>
-    </button>
-    <div class="menu-wrap" bind:this={menuWrap}>
-      <button class="btn square" aria-label="More actions" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <circle cx="3.5" cy="8" r="1.4" /><circle cx="8" cy="8" r="1.4" /><circle cx="12.5" cy="8" r="1.4" />
-        </svg>
-      </button>
-      {#if menuOpen}
-        <div class="menu" role="menu">
-          {#if instance.loader !== "vanilla"}
-            <a role="menuitem" {href}>Mods</a>
-          {/if}
-          <button role="menuitem" onclick={() => ((menuOpen = false), onopenfolder(false))}>Open folder</button>
-          {#if instance.loader !== "vanilla"}
-            <button role="menuitem" onclick={() => ((menuOpen = false), onopenfolder(true))}>Open mods folder</button>
-          {/if}
-          <button
-            role="menuitem"
-            class="danger-text"
-            disabled={!!status}
-            onclick={() => ((menuOpen = false), ondelete())}>Delete…</button
-          >
-        </div>
-      {/if}
-    </div>
-  </div>
 </article>
 
 <style>
   .card {
-    display: flex;
-    flex-direction: column;
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
     gap: 14px;
-    padding: 14px;
-    border: 1px solid var(--line);
+    padding: 12px;
     border-radius: var(--radius);
-    background: var(--card);
-    transition: border-color 0.15s, background 0.15s;
+    background: var(--raised);
+    transition: background 0.12s, box-shadow 0.12s;
   }
   .card:hover {
-    background: var(--card-hover);
+    background: var(--raised-2);
   }
   .card.active {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent);
   }
-  .top {
-    display: flex;
-    gap: 12px;
+  .icon-wrap {
+    position: relative;
+  }
+  .icon-wrap a {
+    display: block;
+    text-decoration: none;
+  }
+  .fab {
+    position: absolute;
+    right: -6px;
+    bottom: -6px;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 3px solid var(--raised-2);
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0;
+    transform: scale(0.85);
+    transition: opacity 0.12s, transform 0.12s;
+  }
+  .fab.play {
+    background: var(--accent);
+    color: var(--accent-ink);
+    padding-left: 2px;
+  }
+  .fab.stop {
+    background: var(--danger);
+    color: #fff;
+    opacity: 1;
+    transform: none;
+    border-color: var(--raised);
+  }
+  .card:hover .fab,
+  .fab:focus-visible {
+    opacity: 1;
+    transform: none;
+  }
+  .info {
+    display: grid;
+    gap: 3px;
     min-width: 0;
     color: inherit;
     text-decoration: none;
-    border-radius: 8px;
-  }
-  .top:hover h3 {
-    color: var(--accent);
-  }
-  .icon {
-    flex: none;
-    width: 56px;
-    height: 56px;
-    border-radius: 12px;
-    display: grid;
-    place-items: center;
-    font-weight: 800;
-    font-size: 20px;
-    color: rgb(255 255 255 / 0.95);
-    text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
-  }
-  .info {
-    min-width: 0;
-    display: grid;
-    align-content: center;
-    gap: 2px;
   }
   h3 {
     font-size: 15px;
@@ -169,64 +174,94 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .meta {
-    color: var(--muted);
-    font-size: 13px;
+  .info:hover h3 {
+    color: var(--accent);
   }
-  .faint {
-    color: var(--faint);
+  .meta {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
   }
   .live {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: var(--ok);
-    box-shadow: 0 0 0 3px rgb(123 196 127 / 0.2);
+    box-shadow: 0 0 0 3px var(--ok-soft);
   }
-  .progress {
-    display: grid;
-    gap: 6px;
-  }
-  .progress-label {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    font-size: 12px;
+  .menu-wrap {
+    position: relative;
+    align-self: start;
     color: var(--muted);
   }
-  .progress-label span:first-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 10;
+    min-width: 170px;
+    padding: 5px;
+    border-radius: 12px;
+    background: var(--raised-3);
+    box-shadow: var(--shadow);
+    display: grid;
+  }
+  .menu button {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    text-align: left;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .menu button:hover:not(:disabled) {
+    background: var(--raised-2);
+  }
+  .menu button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .danger-text {
+    color: var(--danger) !important;
   }
   .bar {
-    height: 6px;
+    grid-column: 1 / -1;
+    height: 5px;
     border-radius: 3px;
-    background: var(--line);
+    background: var(--raised-3);
     overflow: hidden;
   }
   .fill {
     height: 100%;
     background: var(--accent);
-    border-radius: 3px;
     transition: width 0.2s;
   }
   .fill.indeterminate {
     animation: slide 1.1s ease-in-out infinite;
   }
   @keyframes slide {
-    from { transform: translateX(-100%); }
-    to { transform: translateX(300%); }
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
   }
   .error {
+    grid-column: 1 / -1;
     display: grid;
     gap: 4px;
     padding: 8px 10px;
     border-radius: 8px;
-    background: var(--danger-bg);
+    background: var(--danger-soft);
     color: #ffc9c3;
     font-size: 12.5px;
     word-break: break-word;
@@ -236,57 +271,9 @@
     padding: 0;
     border: 0;
     background: none;
-    color: #ffc9c3;
+    color: inherit;
     text-decoration: underline;
     cursor: pointer;
     font-size: 12px;
-  }
-  .actions {
-    display: flex;
-    gap: 6px;
-    margin-top: auto;
-  }
-  .grow {
-    flex: 1;
-  }
-  .menu-wrap {
-    position: relative;
-  }
-  .menu {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + 6px);
-    z-index: 10;
-    min-width: 150px;
-    padding: 4px;
-    border: 1px solid var(--line-strong);
-    border-radius: 10px;
-    background: var(--panel);
-    box-shadow: 0 12px 30px rgb(0 0 0 / 0.45);
-    display: grid;
-  }
-  .menu button,
-  .menu a {
-    text-align: left;
-    padding: 8px 10px;
-    border: 0;
-    border-radius: 6px;
-    background: none;
-    cursor: pointer;
-  }
-  .menu a {
-    color: inherit;
-    text-decoration: none;
-  }
-  .menu a:hover,
-  .menu button:hover:not(:disabled) {
-    background: var(--card-hover);
-  }
-  .menu button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .danger-text {
-    color: var(--danger);
   }
 </style>

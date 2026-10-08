@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::{Context, bail};
 use bagel_core::account::is_valid_username;
 use bagel_core::modrinth::{Modrinth, ProjectType, SearchQuery};
-use bagel_core::mods::InstanceMods;
+use bagel_core::content::{ContentKind, InstanceContent};
 use bagel_core::{
     Account, Accounts, GameVersion, InstanceStore, LaunchOptions, Launcher, Loader, Paths, Progress, ProgressEvent, mrpack,
 };
@@ -94,6 +94,8 @@ enum Command {
         #[arg(long)]
         updates: bool,
     },
+    /// List the worlds in an instance.
+    Worlds { instance: String },
     /// Install a Modrinth mod (with its dependencies) into an instance.
     AddMod {
         instance: String,
@@ -185,6 +187,7 @@ async fn main() -> anyhow::Result<()> {
                 account,
                 game_dir: game_dir.unwrap_or_else(|| cli_game_dir(&launcher, &game)),
                 memory_mb: memory,
+                extra_jvm_args: Vec::new(),
             };
             let mut cmd = launcher.prepare_launch(&game, &options, &progress).await?;
             bar.finish_and_clear();
@@ -221,7 +224,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Mods { instance, updates } => {
             let instance = store.get(&instance).await?;
-            let mods = InstanceMods::new(&store, &instance)?;
+            let mods = InstanceContent::new(&store, &instance, ContentKind::Mod)?;
             mods.identify(&modrinth).await?;
             for m in mods.list().await? {
                 let state = if m.enabled { " " } else { "x" };
@@ -234,11 +237,18 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        Command::Worlds { instance } => {
+            let instance = store.get(&instance).await?;
+            for w in bagel_core::game_files::worlds(&store.game_dir(&instance)?).await? {
+                let mode = if w.hardcore { "hardcore" } else { w.game_mode.as_deref().unwrap_or("?") };
+                let version = w.version.as_deref().unwrap_or("?");
+                println!("{:<24} {:<10} {:<8} {}", w.name, mode, version, w.folder);
+            }
+        }
         Command::AddMod { instance, project } => {
             let instance = store.get(&instance).await?;
-            let mods = InstanceMods::new(&store, &instance)?;
-            let installed = mods.installed_projects().await?;
-            let plan = modrinth.plan_install(&project, None, &instance.game(), &installed).await?;
+            let mods = InstanceContent::new(&store, &instance, ContentKind::Mod)?;
+            let plan = mods.plan(&modrinth, &project, None).await?;
             for p in &plan {
                 let kind = if p.dependency { "dependency" } else { "mod" };
                 println!("{kind}: {} {}", p.version.name, p.version.version_number);
@@ -246,7 +256,7 @@ async fn main() -> anyhow::Result<()> {
             let (progress, bar) = progress_bar();
             mods.install(&modrinth, &plan, &progress).await?;
             bar.finish_and_clear();
-            println!("Installed into {}", mods.mods_dir().display());
+            println!("Installed into {}", mods.dir().display());
         }
         Command::Import { source } => {
             let (progress, bar) = progress_bar();

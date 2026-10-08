@@ -18,6 +18,8 @@ pub struct LaunchOptions {
     /// Folder the game runs in (saves, options, mods).
     pub game_dir: PathBuf,
     pub memory_mb: u32,
+    /// Extra JVM arguments, e.g. from instance settings.
+    pub extra_jvm_args: Vec<String>,
 }
 
 /// Everything needed to start a version, after its files are downloaded.
@@ -216,6 +218,7 @@ impl Launcher {
             classpath: &installed.classpath,
             log_config: installed.log_config.as_deref(),
             memory_mb: options.memory_mb,
+            extra_jvm_args: &options.extra_jvm_args,
         });
 
         let mut cmd = tokio::process::Command::new(&installed.java);
