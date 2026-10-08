@@ -19,6 +19,8 @@
       : null,
   );
 
+  let href = $derived(`/instance?id=${encodeURIComponent(instance.id)}`);
+
   let menuOpen = $state(false);
   let menuWrap = $state<HTMLElement>();
 </script>
@@ -30,10 +32,10 @@
 />
 
 <article class="card" class:active={!!status}>
-  <div class="top">
+  <a class="top" href={href} title="Open {instance.name}">
     <div class="icon" style:background={icon.background}>{icon.initials}</div>
     <div class="info">
-      <h3 title={instance.name}>{instance.name}</h3>
+      <h3>{instance.name}</h3>
       <p
         class="meta"
         title={instance.loaderVersion ? `${LOADER_NAMES[instance.loader]} loader ${instance.loaderVersion}` : undefined}
@@ -49,7 +51,7 @@
         {/if}
       </p>
     </div>
-  </div>
+  </a>
 
   {#if status?.phase === "preparing"}
     <div class="progress" aria-live="polite">
@@ -96,6 +98,9 @@
       </button>
       {#if menuOpen}
         <div class="menu" role="menu">
+          {#if instance.loader !== "vanilla"}
+            <a role="menuitem" {href}>Mods</a>
+          {/if}
           <button role="menuitem" onclick={() => ((menuOpen = false), onopenfolder(false))}>Open folder</button>
           {#if instance.loader !== "vanilla"}
             <button role="menuitem" onclick={() => ((menuOpen = false), onopenfolder(true))}>Open mods folder</button>
@@ -133,6 +138,12 @@
     display: flex;
     gap: 12px;
     min-width: 0;
+    color: inherit;
+    text-decoration: none;
+    border-radius: 8px;
+  }
+  .top:hover h3 {
+    color: var(--accent);
   }
   .icon {
     flex: none;
@@ -254,7 +265,8 @@
     box-shadow: 0 12px 30px rgb(0 0 0 / 0.45);
     display: grid;
   }
-  .menu button {
+  .menu button,
+  .menu a {
     text-align: left;
     padding: 8px 10px;
     border: 0;
@@ -262,6 +274,11 @@
     background: none;
     cursor: pointer;
   }
+  .menu a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .menu a:hover,
   .menu button:hover:not(:disabled) {
     background: var(--card-hover);
   }

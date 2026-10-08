@@ -7,6 +7,7 @@
   import Modal from "$lib/components/Modal.svelte";
   import NewInstanceDialog from "$lib/components/NewInstanceDialog.svelte";
   import { games } from "$lib/games.svelte";
+  import { packs } from "$lib/packs.svelte";
 
   let instances = $state<Instance[]>([]);
   let loaded = $state(false);
@@ -72,12 +73,17 @@
           {instances.length === 1 ? "instance" : "instances"}
         </p>
       </div>
-      <button class="btn primary" onclick={() => (creating = true)}>
-        <svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M7 2v10M2 7h10" />
-        </svg>
-        New instance
-      </button>
+      <div class="head-actions">
+        <button class="btn" disabled={packs.busy} onclick={() => packs.pickFile()} title="Import a Modrinth modpack (.mrpack)">
+          Import
+        </button>
+        <button class="btn primary" onclick={() => (creating = true)}>
+          <svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M7 2v10M2 7h10" />
+          </svg>
+          New instance
+        </button>
+      </div>
     </header>
 
     {#if loadError}
@@ -162,6 +168,10 @@
   }
   .sub {
     color: var(--muted);
+  }
+  .head-actions {
+    display: flex;
+    gap: 8px;
   }
   .grid {
     display: grid;

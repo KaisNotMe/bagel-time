@@ -10,6 +10,13 @@ use tokio::io::AsyncWriteExt;
 use crate::error::{Error, IoContext, Result, parse_json};
 use crate::progress::Progress;
 
+/// Modrinth asks for a User-Agent that identifies the project.
+pub const USER_AGENT: &str = concat!(
+    "KaisNotMe/bagel-time/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/KaisNotMe/bagel-time)"
+);
+
 const CONCURRENCY: usize = 16;
 const ATTEMPTS: u32 = 3;
 
@@ -35,7 +42,7 @@ impl Default for Downloader {
 impl Downloader {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
-            .user_agent(concat!("BagelTime/", env!("CARGO_PKG_VERSION")))
+            .user_agent(USER_AGENT)
             .connect_timeout(Duration::from_secs(15))
             .read_timeout(Duration::from_secs(30))
             .build()
@@ -50,6 +57,15 @@ impl Downloader {
 
     pub async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T> {
         parse_json(&self.get_bytes(url).await?, url)
+    }
+
+    pub async fn post_json<B: serde::Serialize + ?Sized, T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &B,
+    ) -> Result<T> {
+        let resp = self.client.post(url).json(body).send().await?.error_for_status()?;
+        parse_json(&resp.bytes().await?, url)
     }
 
     /// Download one file unless it is already present. Writes to a `.part` file

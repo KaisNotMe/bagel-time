@@ -136,7 +136,7 @@ async fn run_game(app: &AppHandle, state: &AppState, instance: &Instance) -> Res
         memory_mb: instance.memory_mb.unwrap_or(settings.memory_mb),
     };
 
-    let progress = progress_reporter(app.clone(), id.clone());
+    let progress = progress_reporter(app.clone(), "launch-progress", id.clone());
     let mut cmd = state
         .launcher
         .prepare_launch(&instance.game(), &options, &progress)
@@ -208,8 +208,8 @@ fn emit_stage(app: &AppHandle, id: &str, stage: &str) {
     );
 }
 
-/// Forwards progress to the UI, at most ~100 updates per stage.
-fn progress_reporter(app: AppHandle, id: String) -> Progress {
+/// Forwards progress to the UI as `event_name`, at most ~100 updates per stage.
+pub(crate) fn progress_reporter(app: AppHandle, event_name: &'static str, id: String) -> Progress {
     let current = Mutex::new((String::new(), 0u64, 0u64)); // stage, total, done
     Progress::new(move |event| {
         let mut cur = current.lock().unwrap();
@@ -224,7 +224,7 @@ fn progress_reporter(app: AppHandle, id: String) -> Progress {
             }
         }
         let _ = app.emit(
-            "launch-progress",
+            event_name,
             ProgressPayload {
                 instance_id: id.clone(),
                 stage: cur.0.clone(),

@@ -44,6 +44,14 @@ pub enum Error {
     #[error("zip error: {0}")]
     Zip(#[from] zip::result::ZipError),
 
+    /// A problem with a modpack file (bad index, unsafe paths, unsupported loader).
+    #[error("{0}")]
+    Pack(String),
+
+    /// A mod couldn't be installed (no compatible version, conflicts).
+    #[error("{0}")]
+    Mods(String),
+
     #[error("background task failed: {0}")]
     Task(#[from] tokio::task::JoinError),
 }

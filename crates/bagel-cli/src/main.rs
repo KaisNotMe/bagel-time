@@ -7,7 +7,11 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 use bagel_core::account::is_valid_username;
-use bagel_core::{Account, Accounts, GameVersion, LaunchOptions, Launcher, Loader, Paths, Progress, ProgressEvent};
+use bagel_core::modrinth::{Modrinth, ProjectType, SearchQuery};
+use bagel_core::mods::InstanceMods;
+use bagel_core::{
+    Account, Accounts, GameVersion, InstanceStore, LaunchOptions, Launcher, Loader, Paths, Progress, ProgressEvent, mrpack,
+};
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -66,6 +70,38 @@ enum Command {
         #[arg(long)]
         game_dir: Option<PathBuf>,
     },
+    /// Search Modrinth for mods or modpacks.
+    Search {
+        text: String,
+        /// Search modpacks instead of mods.
+        #[arg(long)]
+        modpacks: bool,
+        /// Only results for this Minecraft version.
+        #[arg(long)]
+        mc: Option<String>,
+        /// Only mods for this loader.
+        #[arg(long)]
+        loader: Option<Loader>,
+        #[arg(short = 'n', long, default_value_t = 10)]
+        limit: u32,
+    },
+    /// List app instances.
+    Instances,
+    /// List the mods in an instance.
+    Mods {
+        instance: String,
+        /// Also check Modrinth for updates.
+        #[arg(long)]
+        updates: bool,
+    },
+    /// Install a Modrinth mod (with its dependencies) into an instance.
+    AddMod {
+        instance: String,
+        /// Project slug or id, e.g. sodium.
+        project: String,
+    },
+    /// Create an instance from a .mrpack file or a Modrinth modpack slug.
+    Import { source: String },
     /// Sign in with a Microsoft account.
     Login,
     /// List signed-in accounts.
@@ -85,6 +121,8 @@ async fn main() -> anyhow::Result<()> {
         None => Paths::default_location().context("could not find a data folder for this OS")?,
     };
     let accounts = Accounts::new(&paths);
+    let store = InstanceStore::new(&paths);
+    let modrinth = Modrinth::new();
     let launcher = Launcher::new(paths);
 
     match cli.command {
@@ -160,6 +198,66 @@ async fn main() -> anyhow::Result<()> {
                 .wait()
                 .await?;
             println!("Minecraft exited with {status}");
+        }
+        Command::Search { text, modpacks, mc, loader, limit } => {
+            let query = SearchQuery {
+                text,
+                project_type: Some(if modpacks { ProjectType::Modpack } else { ProjectType::Mod }),
+                game_version: mc,
+                loader,
+                limit,
+                ..Default::default()
+            };
+            let results = modrinth.search(&query).await?;
+            println!("{} results", results.total_hits);
+            for hit in results.hits {
+                println!("{:<24} {:>10} downloads  {}", hit.slug, hit.downloads, hit.title);
+            }
+        }
+        Command::Instances => {
+            for i in store.list().await? {
+                println!("{:<24} {}", i.id, describe(&i.game()));
+            }
+        }
+        Command::Mods { instance, updates } => {
+            let instance = store.get(&instance).await?;
+            let mods = InstanceMods::new(&store, &instance)?;
+            mods.identify(&modrinth).await?;
+            for m in mods.list().await? {
+                let state = if m.enabled { " " } else { "x" };
+                let version = m.version_number.as_deref().unwrap_or("?");
+                println!("{state} {:<32} {:<20} {}", m.title, version, m.file_name);
+            }
+            if updates {
+                for u in mods.check_updates(&modrinth).await? {
+                    println!("update: {} -> {}", u.file_name, u.version_number);
+                }
+            }
+        }
+        Command::AddMod { instance, project } => {
+            let instance = store.get(&instance).await?;
+            let mods = InstanceMods::new(&store, &instance)?;
+            let installed = mods.installed_projects().await?;
+            let plan = modrinth.plan_install(&project, None, &instance.game(), &installed).await?;
+            for p in &plan {
+                let kind = if p.dependency { "dependency" } else { "mod" };
+                println!("{kind}: {} {}", p.version.name, p.version.version_number);
+            }
+            let (progress, bar) = progress_bar();
+            mods.install(&modrinth, &plan, &progress).await?;
+            bar.finish_and_clear();
+            println!("Installed into {}", mods.mods_dir().display());
+        }
+        Command::Import { source } => {
+            let (progress, bar) = progress_bar();
+            let path = PathBuf::from(&source);
+            let instance = if path.is_file() {
+                mrpack::install_pack(&store, &modrinth, &path, &progress).await?
+            } else {
+                mrpack::install_from_modrinth(launcher.paths(), &store, &modrinth, &source, None, &progress).await?
+            };
+            bar.finish_and_clear();
+            println!("Created instance {} ({})", instance.id, describe(&instance.game()));
         }
         Command::Login => {
             let login = accounts.start_login().await?;

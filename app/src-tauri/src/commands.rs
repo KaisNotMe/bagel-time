@@ -34,7 +34,7 @@ pub struct InstanceView {
     running: bool,
 }
 
-fn view(state: &AppState, instance: Instance) -> InstanceView {
+pub(crate) fn view(state: &AppState, instance: Instance) -> InstanceView {
     let running = state.games.is_running(&instance.id);
     InstanceView { instance, running }
 }
@@ -52,6 +52,12 @@ pub async fn list_versions(state: State<'_>, snapshots: bool) -> CmdResult<Vec<V
             release_time: v.release_time,
         })
         .collect())
+}
+
+#[tauri::command]
+pub async fn get_instance(state: State<'_>, id: String) -> CmdResult<InstanceView> {
+    let instance = state.store.get(&id).await.map_err(err)?;
+    Ok(view(&state, instance))
 }
 
 #[tauri::command]

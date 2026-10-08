@@ -32,3 +32,10 @@ export function logTime(timestamp: number | null): string {
   if (!timestamp) return "";
   return new Date(timestamp).toLocaleTimeString([], { hour12: false });
 }
+
+const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+
+/** 238896364 -> "238.9M". */
+export function compactNumber(n: number): string {
+  return compact.format(n);
+}

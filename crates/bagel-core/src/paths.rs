@@ -85,4 +85,9 @@ impl Paths {
     pub fn instances_dir(&self) -> PathBuf {
         self.root.join("instances")
     }
+
+    /// Temporary downloads such as modpack files.
+    pub fn cache_dir(&self) -> PathBuf {
+        self.root.join("cache")
+    }
 }
