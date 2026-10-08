@@ -1,4 +1,8 @@
-<script lang="ts">
+    if (!target || !project || project.projectType === "modpack") return null;
+    const kind = project.projectType;
+    if (!acceptedLoaders(kind, target.loader)) return "Needs a mod loader";
+    return versionFits(v, kind, target.loader, target.gameVersion)
+      ? null<script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { page } from "$app/state";
   import {
@@ -22,6 +26,7 @@
   import Modal from "$lib/components/Modal.svelte";
   import ProjectIcon from "$lib/components/ProjectIcon.svelte";
   import { compactNumber } from "$lib/format";
+  import { acceptedLoaders, versionFits } from "$lib/fit";
   import { instances } from "$lib/instances.svelte";
   import { ui } from "$lib/ui.svelte";
 
@@ -44,21 +49,14 @@
 
   let gallery = $derived(project ? [...project.gallery].sort((a, b) => a.ordering - b.ordering) : []);
   let isContent = $derived(project !== null && project.projectType !== "modpack");
-  /** Loaders an instance accepts for this kind of project. */
-  let targetLoaders = $derived.by(() => {
-    if (!target || !project) return [];
-    if (project.projectType === "mod") return target.loader === "quilt" ? ["quilt", "fabric"] : [target.loader];
-    if (project.projectType === "shader") return ["iris", "optifine"];
-    return ["minecraft"];
-  });
   /** Why a version won't work in the instance, or null if it will (same rule as installing). */
   function versionProblem(v: ProjectVersion): string | null {
-    if (!target || !project) return null;
-    if (target.loader === "vanilla" && project.projectType !== "resourcepack") return "Needs a mod loader";
-    const fits =
-      v.gameVersions.includes(target.gameVersion) &&
-      (v.loaders.length === 0 || v.loaders.some((l) => targetLoaders.includes(l)));
-    return fits ? null : `Not made for ${LOADER_NAMES[target.loader]} ${target.gameVersion}`;
+    if (!target || !project || project.projectType === "modpack") return null;
+    const kind = project.projectType;
+    if (!acceptedLoaders(kind, target.loader)) return "Needs a mod loader";
+    return versionFits(v, kind, target.loader, target.gameVersion)
+      ? null
+      : `Not made for ${LOADER_NAMES[target.loader]} ${target.gameVersion}`;
   }
   let shownVersions = $derived(target && onlyCompatible ? versions.filter((v) => !versionProblem(v)) : versions);
   /** Why the project as a whole can't go into the instance. */

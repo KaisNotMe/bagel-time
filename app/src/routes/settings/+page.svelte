@@ -122,22 +122,22 @@
 
       <section>
         <h2>CurseForge</h2>
-        {#if cfStatus?.managed}
-          <p class="muted">This build already has a CurseForge API key.</p>
-        {:else}
-          <label class="field">
-            <span>API key</span>
-            <input
-              class="input mono"
-              type="password"
-              bind:value={settings.curseforgeApiKey}
-              placeholder="Paste your key from console.curseforge.com"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <small>Needed to browse and install from CurseForge. Stored only on this computer.</small>
-          </label>
-        {/if}
+        <label class="field">
+          <span>API key</span>
+          <input
+            class="input mono"
+            type="password"
+            bind:value={settings.curseforgeApiKey}
+            placeholder="Paste your key from console.curseforge.com"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <small>
+            {cfStatus?.managed
+              ? "This build has a key built in. A key pasted here is used instead."
+              : "Needed to browse and install from CurseForge. Stored only on this computer."}
+          </small>
+        </label>
       </section>
 
       <section>

@@ -390,15 +390,13 @@ impl CurseForge {
         *self.key.write().expect("key lock") = key.trim().to_string();
     }
 
-    /// The environment at run time, then settings, then the environment at
-    /// build time (so release builds work without setup and the key never
-    /// sits in the repository).
+    /// Settings first (so a key the player pastes always wins), then the
+    /// environment at run time, then at build time (so release builds work
+    /// without setup and the key never sits in the repository).
     fn key(&self) -> Option<String> {
         let clean = |k: &str| Some(k.trim().to_string()).filter(|k| !k.is_empty());
-        std::env::var(KEY_ENV)
-            .ok()
-            .and_then(|k| clean(&k))
-            .or_else(|| clean(&self.key.read().expect("key lock")))
+        clean(&self.key.read().expect("key lock"))
+            .or_else(|| std::env::var(KEY_ENV).ok().and_then(|k| clean(&k)))
             .or_else(|| option_env!("BAGEL_CURSEFORGE_KEY").and_then(clean))
     }
 
@@ -436,7 +434,7 @@ impl CurseForge {
             .await?;
         if resp.status() == reqwest::StatusCode::FORBIDDEN || resp.status() == reqwest::StatusCode::UNAUTHORIZED {
             return Err(Error::Mods(
-                "CurseForge didn't accept the API key. Check it in Settings.".into(),
+                "CurseForge says the API key is missing or invalid. Get a new one at console.curseforge.com and paste it in Settings.".into(),
             ));
         }
         let resp = resp.error_for_status()?;

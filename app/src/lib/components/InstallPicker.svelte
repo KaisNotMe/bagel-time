@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, errorMessage, LOADER_NAMES, PROJECT_TYPE_NAMES, type ContentKind, type Fit, type Source } from "$lib/api";
   import { games } from "$lib/games.svelte";
+  import { acceptedLoaders } from "$lib/fit";
   import { instances } from "$lib/instances.svelte";
   import { ui } from "$lib/ui.svelte";
   import Icon from "./Icon.svelte";
@@ -39,11 +40,13 @@
     return fits[id] ?? { fits: true, version: null, reason: null };
   }
 
+  // Vanilla can't take mods or shaders at all, so those aren't offered.
+  let usable = $derived(instances.list.filter((i) => acceptedLoaders(kind, i.loader) !== null));
   // Ones that fit first; the rest keep their order.
   let sorted = $derived(
-    fits ? [...instances.list].sort((a, b) => Number(fitOf(b.id)!.fits) - Number(fitOf(a.id)!.fits)) : instances.list,
+    fits ? [...usable].sort((a, b) => Number(fitOf(b.id)!.fits) - Number(fitOf(a.id)!.fits)) : usable,
   );
-  let noneFit = $derived(fits !== null && instances.list.length > 0 && instances.list.every((i) => !fitOf(i.id)!.fits));
+  let noneFit = $derived(fits !== null && usable.length > 0 && usable.every((i) => !fitOf(i.id)!.fits));
 
   async function install(id: string) {
     rows[id] = { busy: true };
@@ -63,8 +66,8 @@
   </p>
   {#if noneFit}
     <p class="note">
-      <Icon name="info" size={15} /> None of your instances can use {versionId ? "this version" : "it"}. Make a new
-      instance with a Minecraft version and loader it supports.
+      <Icon name="info" size={15} /> None of your instances can use {versionId ? "this version" : "it"}. Create a new
+      instance below; it only offers versions that work.
     </p>
   {/if}
   <div class="list">
@@ -99,7 +102,11 @@
         {/if}
       </div>
     {:else}
-      <p class="empty">You don't have any instances yet.</p>
+      <p class="empty">
+        {instances.list.length === 0
+          ? "You don't have any instances yet."
+          : "You need a modded instance (Fabric, Quilt, Forge or NeoForge) for this."} Create one below.
+      </p>
     {/each}
   </div>
   {#snippet footer()}
@@ -107,7 +114,7 @@
       class="btn ghost new"
       onclick={() => {
         onclose();
-        ui.creatingInstance = true;
+        ui.newInstance({ source, projectId, title, kind, versionId });
       }}><Icon name="plus" size={15} /> New instance</button
     >
     <button class="btn" onclick={onclose}>Done</button>

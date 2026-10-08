@@ -13,9 +13,9 @@ A Minecraft: Java Edition launcher written in Rust, in the spirit of the Modrint
 - Live game log, progress while downloading, start/stop from the library
 - Modrinth and CurseForge: search and install mods, resource packs and shaders with their dependencies, switch them on and off, update them, and install modpacks (or import `.mrpack` and CurseForge `.zip` files)
 - Recognises mods added by hand (Modrinth by SHA-1, CurseForge by fingerprint)
-- Only installs versions that fit the instance: the install picker and version list grey out what won't work and say why
+- Only installs versions that fit the instance: the install picker and version list grey out what won't work and say why; "New instance" from there only offers loaders and versions the project supports and installs it straight away
 
-CurseForge needs an API key: set `BAGEL_CURSEFORGE_KEY` (at build or run time) or paste one in Settings.
+CurseForge needs an API key: paste one in Settings, or set `BAGEL_CURSEFORGE_KEY` (at build or run time). A key in Settings wins.
 
 ## How sign-in works
 

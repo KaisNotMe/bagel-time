@@ -107,7 +107,7 @@
         <button class="btn" disabled={packs.busy} onclick={() => packs.pickFile()}>
           <Icon name="upload" size={16} /> Import
         </button>
-        <button class="btn primary" onclick={() => (ui.creatingInstance = true)}>
+        <button class="btn primary" onclick={() => ui.newInstance()}>
           <Icon name="plus" size={16} /> New instance
         </button>
       </div>
@@ -165,7 +165,7 @@
         <h3>Nothing in the oven yet</h3>
         <p>Create an instance to pick a Minecraft version, or install a modpack.</p>
         <div class="head-actions">
-          <button class="btn primary" onclick={() => (ui.creatingInstance = true)}>Create an instance</button>
+          <button class="btn primary" onclick={() => ui.newInstance()}>Create an instance</button>
           <a class="btn" href="/discover?type=modpack">Browse modpacks</a>
         </div>
       </div>

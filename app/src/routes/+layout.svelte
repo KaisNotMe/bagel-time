@@ -72,7 +72,7 @@
           <span class="tip">{inst.name}</span>
         </a>
       {/each}
-      <button class="rail-btn add" aria-label="New instance" onclick={() => (ui.creatingInstance = true)}>
+      <button class="rail-btn add" aria-label="New instance" onclick={() => ui.newInstance()}>
         <Icon name="plus" size={20} />
         <span class="tip">New instance</span>
       </button>
@@ -163,9 +163,10 @@
 <NewInstanceDialog
   open={ui.creatingInstance}
   {showSnapshots}
-  onclose={() => (ui.creatingInstance = false)}
+  forProject={ui.creatingFor}
+  onclose={() => ui.closeNewInstance()}
   oncreated={async (instance) => {
-    ui.creatingInstance = false;
+    ui.closeNewInstance();
     await instances.refresh();
     goto(`/instance?id=${encodeURIComponent(instance.id)}`);
   }}

@@ -61,7 +61,7 @@
             <p class="muted">Create your first instance or grab a modpack to start playing.</p>
           </div>
           <div class="welcome-actions">
-            <button class="btn primary" onclick={() => (ui.creatingInstance = true)}>
+            <button class="btn primary" onclick={() => ui.newInstance()}>
               <Icon name="plus" size={16} /> New instance
             </button>
             <a class="btn" href="/discover?type=modpack">Browse modpacks</a>

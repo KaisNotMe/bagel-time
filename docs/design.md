@@ -46,3 +46,5 @@ A Minecraft launcher in Rust, in the spirit of the Modrinth App and GDLauncher.
 7. ~~CurseForge browsing/installing + pack import~~ done
 8. Polish: settings, live log viewer, auto-update
    - ~~Install only versions that fit the instance; grey out instances and versions that won't work~~ done
+   - ~~"New instance" from the install picker only offers loaders and Minecraft versions the project supports, then installs it~~ done
+   - ~~A CurseForge key pasted in Settings wins over the environment~~ done

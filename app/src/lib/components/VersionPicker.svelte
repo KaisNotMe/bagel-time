@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, errorMessage, LOADER_NAMES, type Loader, type LoaderVersion, type VersionInfo } from "$lib/api";
+  import { ALL_LOADERS } from "$lib/fit";
 
   type Props = {
     /** Load lists only while shown. */
@@ -10,6 +11,8 @@
     loaderVersion: string;
     /** True once a complete, supported choice is made. */
     valid?: boolean;
+    /** Only offer these loaders and, per loader, these Minecraft versions. */
+    supported?: Map<Loader, Set<string>> | null;
   };
   let {
     active,
@@ -18,9 +21,10 @@
     loader = $bindable(),
     loaderVersion = $bindable(),
     valid = $bindable(false),
+    supported = null,
   }: Props = $props();
 
-  const loaders: Loader[] = ["vanilla", "fabric", "quilt", "forge", "neoforge"];
+  let loaders = $derived(supported ? ALL_LOADERS.filter((l) => supported.has(l)) : ALL_LOADERS);
 
   let versions = $state<VersionInfo[]>([]);
   let loading = $state(false);
@@ -44,7 +48,34 @@
   });
 
   $effect(() => {
-    if (active) loadVersions(snapshots);
+    // When limited to what a project supports, it may only support snapshots.
+    if (active) loadVersions(snapshots || !!supported);
+  });
+
+  /** Versions to offer: releases (plus snapshots if asked), limited to what's supported. */
+  let shown = $derived.by(() => {
+    if (!supported) return versions;
+    const fitting = versions.filter((v) => supported.get(loader)?.has(v.id));
+    const picked = fitting.filter((v) => snapshots || v.kind === "release");
+    return picked.length > 0 ? picked : fitting;
+  });
+
+  /** The supported loader with the newest Minecraft version; earlier loaders win ties. */
+  function bestLoader(allowed: Map<Loader, Set<string>>): Loader {
+    let best = loaders[0];
+    let bestIndex = Infinity;
+    for (const l of loaders) {
+      const i = versions.findIndex((v) => allowed.get(l)?.has(v.id) && (snapshots || v.kind === "release"));
+      if (i !== -1 && i < bestIndex) [best, bestIndex] = [l, i];
+    }
+    return best;
+  }
+
+  // Keep the choice on something the project supports.
+  $effect(() => {
+    if (!supported || versions.length === 0) return;
+    if (!supported.has(loader)) loader = bestLoader(supported);
+    if (!shown.some((v) => v.id === version)) version = shown[0]?.id ?? "";
   });
 
   $effect(() => {
@@ -91,7 +122,7 @@
 
 <div class="field">
   <span>Mod loader</span>
-  <div class="segmented" role="radiogroup" aria-label="Mod loader">
+  <div class="segmented" role="radiogroup" aria-label="Mod loader" style:--n={loaders.length}>
     {#each loaders as l (l)}
       <button
         type="button"
@@ -107,13 +138,13 @@
 <div class="row">
   <label class="field grow">
     <span>Minecraft version</span>
-    <select class="input" bind:value={version} disabled={loading || versions.length === 0}>
-      {#if version && !versions.some((v) => v.id === version)}
+    <select class="input" bind:value={version} disabled={loading || shown.length === 0}>
+      {#if version && !shown.some((v) => v.id === version)}
         <option value={version}>{version}</option>
       {:else if loading && versions.length === 0}
         <option value="">Loading…</option>
       {/if}
-      {#each versions as v (v.id)}
+      {#each shown as v (v.id)}
         <option value={v.id}>{v.id}{v.kind === "snapshot" ? "  (snapshot)" : ""}</option>
       {/each}
     </select>
@@ -146,7 +177,7 @@
 <style>
   .segmented {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(var(--n), 1fr);
     gap: 4px;
     padding: 4px;
     border-radius: 12px;
