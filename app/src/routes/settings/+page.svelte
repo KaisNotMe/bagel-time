@@ -1,12 +1,35 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api, errorMessage, type Settings } from "$lib/api";
+  import { account } from "$lib/account.svelte";
+  import LoginDialog from "$lib/components/LoginDialog.svelte";
 
   let settings = $state<Settings | null>(null);
   let saving = $state(false);
   let message = $state<{ ok: boolean; text: string } | null>(null);
+  let signingIn = $state(false);
+  let accountError = $state("");
+
+  async function choose(uuid: string | null) {
+    accountError = "";
+    try {
+      account.list = await api.setActiveAccount(uuid);
+    } catch (e) {
+      accountError = errorMessage(e);
+    }
+  }
+
+  async function remove(uuid: string) {
+    accountError = "";
+    try {
+      account.list = await api.removeAccount(uuid);
+    } catch (e) {
+      accountError = errorMessage(e);
+    }
+  }
 
   onMount(async () => {
+    account.refresh();
     try {
       settings = await api.getSettings();
     } catch (e) {
@@ -33,14 +56,37 @@
 <div class="scroll">
   <h1>Settings</h1>
 
+  <section class="accounts">
+    <div class="section-head">
+      <h2>Accounts</h2>
+      <button class="btn" onclick={() => (signingIn = true)}>Add Microsoft account</button>
+    </div>
+    <div class="account-list" role="radiogroup" aria-label="Play as">
+      {#each account.list.accounts as a (a.uuid)}
+        <div class="account" class:selected={account.list.active === a.uuid}>
+          <label>
+            <input type="radio" name="account" checked={account.list.active === a.uuid} onchange={() => choose(a.uuid)} />
+            <img src="https://mc-heads.net/avatar/{a.uuid}/32" alt="" width="32" height="32" />
+            <span><b>{a.username}</b><small>Microsoft account</small></span>
+          </label>
+          <button class="btn ghost" onclick={() => remove(a.uuid)}>Remove</button>
+        </div>
+      {/each}
+      <div class="account" class:selected={account.list.active === null}>
+        <label>
+          <input type="radio" name="account" checked={account.list.active === null} onchange={() => choose(null)} />
+          <span class="offline-icon">?</span>
+          <span><b>Offline</b><small>Singleplayer and offline servers only</small></span>
+        </label>
+      </div>
+    </div>
+    {#if accountError}<p class="alert">{accountError}</p>{/if}
+  </section>
+
   {#if settings}
     <form onsubmit={save}>
       <section>
-        <h2>Account</h2>
-        <p class="note">
-          Microsoft login is coming next. Until then you play in offline mode: singleplayer and
-          offline-mode servers work, online servers and skins don't.
-        </p>
+        <h2>Offline mode</h2>
         <label class="field">
           <span>Offline username</span>
           <input class="input" bind:value={settings.offlineUsername} maxlength="16" spellcheck="false" />
@@ -77,6 +123,15 @@
   {/if}
 </div>
 
+<LoginDialog
+  open={signingIn}
+  onclose={() => (signingIn = false)}
+  onsignedin={async () => {
+    signingIn = false;
+    await account.refresh();
+  }}
+/>
+
 <style>
   .scroll {
     height: 100%;
@@ -93,6 +148,63 @@
     gap: 16px;
     max-width: 560px;
   }
+  .accounts {
+    max-width: 560px;
+    margin-bottom: 16px;
+  }
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .account-list {
+    display: grid;
+    gap: 6px;
+  }
+  .account {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+  }
+  .account.selected {
+    border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  }
+  .account label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    cursor: pointer;
+  }
+  .account input {
+    accent-color: var(--accent);
+  }
+  .account img,
+  .offline-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    image-rendering: pixelated;
+    background: var(--card-hover);
+  }
+  .offline-icon {
+    display: grid;
+    place-items: center;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .account span:last-child {
+    display: grid;
+  }
+  .account small {
+    color: var(--faint);
+  }
   section {
     display: grid;
     gap: 14px;
@@ -103,9 +215,6 @@
   }
   h2 {
     font-size: 15px;
-  }
-  .note {
-    color: var(--muted);
   }
   .field b {
     float: right;

@@ -1,7 +1,9 @@
 //! Bagel Time launcher core: everything except the user interface.
 
 pub mod account;
+pub mod accounts;
 mod assets;
+pub mod auth;
 pub mod download;
 pub mod error;
 pub mod instance;
@@ -18,6 +20,7 @@ pub mod rules;
 pub mod settings;
 
 pub use account::Account;
+pub use accounts::Accounts;
 pub use error::{Error, Result};
 pub use instance::{Instance, InstanceStore};
 pub use launcher::{InstalledVersion, LaunchOptions, Launcher};

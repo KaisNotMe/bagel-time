@@ -31,7 +31,7 @@ A Minecraft launcher in Rust, in the spirit of the Modrinth App and GDLauncher.
 
 ## Roadmap
 1. ~~Vanilla launch from the CLI (offline)~~ done
-2. Microsoft login
+2. Microsoft login (built; waiting on Mojang approval of the client ID)
 3. ~~Instances + Tauri UI shell~~ done
 4. ~~Fabric and Quilt~~ done
 5. Modrinth browsing/installing + `.mrpack` import

@@ -119,8 +119,19 @@ pub async fn launch(app: AppHandle, state: Arc<AppState>, id: String) -> Result<
 async fn run_game(app: &AppHandle, state: &AppState, instance: &Instance) -> Result<Option<i32>, String> {
     let id = instance.id.clone();
     let settings = Settings::load(state.launcher.paths()).await;
+    let account = match state.accounts.active().await.map_err(|e| e.to_string())? {
+        Some(uuid) => {
+            emit_stage(app, &id, "Signing in");
+            state
+                .accounts
+                .launch_account(uuid)
+                .await
+                .map_err(|e| e.to_string())?
+        }
+        None => Account::offline(&settings.offline_username),
+    };
     let options = LaunchOptions {
-        account: Account::offline(&settings.offline_username),
+        account,
         game_dir: state.store.game_dir(instance).map_err(|e| e.to_string())?,
         memory_mb: instance.memory_mb.unwrap_or(settings.memory_mb),
     };
@@ -183,6 +194,18 @@ async fn pipe_logs<R: AsyncRead + Unpin>(app: AppHandle, id: String, reader: Opt
             }
         }
     }
+}
+
+fn emit_stage(app: &AppHandle, id: &str, stage: &str) {
+    let _ = app.emit(
+        "launch-progress",
+        ProgressPayload {
+            instance_id: id.to_string(),
+            stage: stage.to_string(),
+            done: 0,
+            total: 0,
+        },
+    );
 }
 
 /// Forwards progress to the UI, at most ~100 updates per stage.

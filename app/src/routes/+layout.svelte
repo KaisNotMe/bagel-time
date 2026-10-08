@@ -3,12 +3,14 @@
   import { onMount, type Snippet } from "svelte";
   import { page } from "$app/state";
   import BagelLogo from "$lib/components/BagelLogo.svelte";
+  import { account } from "$lib/account.svelte";
   import { games } from "$lib/games.svelte";
 
   let { children }: { children: Snippet } = $props();
 
   onMount(() => {
     games.listen();
+    account.refresh();
   });
 
   const nav = [
@@ -37,7 +39,13 @@
         </a>
       {/each}
     </nav>
-    <p class="foot">v0.1.0 · offline mode</p>
+    <a class="foot" href="/settings">
+      {#if account.activeName}
+        Playing as <b>{account.activeName}</b>
+      {:else}
+        Offline mode
+      {/if}
+    </a>
   </aside>
   <main>
     {@render children()}
@@ -95,6 +103,13 @@
     padding: 0 10px;
     color: var(--faint);
     font-size: 12px;
+    text-decoration: none;
+  }
+  .foot:hover {
+    color: var(--muted);
+  }
+  .foot b {
+    color: var(--text);
   }
   main {
     min-width: 0;

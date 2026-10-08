@@ -44,7 +44,17 @@ export type LogLine = {
   message: string;
 };
 
+export type AccountSummary = { uuid: string; username: string };
+export type AccountList = { accounts: AccountSummary[]; active: string | null };
+export type DeviceLogin = { userCode: string; verificationUri: string; expiresIn: number };
+
 export const api = {
+  listAccounts: () => invoke<AccountList>("list_accounts"),
+  startLogin: () => invoke<DeviceLogin>("start_login"),
+  openLoginPage: () => invoke<void>("open_login_page"),
+  cancelLogin: () => invoke<void>("cancel_login"),
+  setActiveAccount: (uuid: string | null) => invoke<AccountList>("set_active_account", { uuid }),
+  removeAccount: (uuid: string) => invoke<AccountList>("remove_account", { uuid }),
   listVersions: (snapshots: boolean) => invoke<VersionInfo[]>("list_versions", { snapshots }),
   listLoaderVersions: (loader: Loader, gameVersion: string) =>
     invoke<LoaderVersion[]>("list_loader_versions", { loader, gameVersion }),

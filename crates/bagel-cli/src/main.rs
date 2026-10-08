@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 use bagel_core::account::is_valid_username;
-use bagel_core::{Account, GameVersion, LaunchOptions, Launcher, Loader, Paths, Progress, ProgressEvent};
+use bagel_core::{Account, Accounts, GameVersion, LaunchOptions, Launcher, Loader, Paths, Progress, ProgressEvent};
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -56,15 +56,24 @@ enum Command {
         version: String,
         #[command(flatten)]
         loader: LoaderArgs,
-        /// Offline username.
-        #[arg(long, default_value = "Player")]
-        name: String,
+        /// Play offline with this username instead of the signed-in account.
+        #[arg(long)]
+        offline: Option<String>,
         /// Maximum memory in MB.
         #[arg(long, default_value_t = 4096)]
         memory: u32,
         /// Game folder (saves, options, mods). Defaults to cli-games/<version>.
         #[arg(long)]
         game_dir: Option<PathBuf>,
+    },
+    /// Sign in with a Microsoft account.
+    Login,
+    /// List signed-in accounts.
+    Accounts,
+    /// Remove a signed-in account.
+    Logout {
+        /// Minecraft username.
+        username: String,
     },
 }
 
@@ -75,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
         Some(dir) => Paths::new(dir),
         None => Paths::default_location().context("could not find a data folder for this OS")?,
     };
+    let accounts = Accounts::new(&paths);
     let launcher = Launcher::new(paths);
 
     match cli.command {
@@ -113,17 +123,28 @@ async fn main() -> anyhow::Result<()> {
         Command::Launch {
             version,
             loader,
-            name,
+            offline,
             memory,
             game_dir,
         } => {
-            if !is_valid_username(&name) {
-                bail!("'{name}' isn't a valid username (3-16 letters, digits or _)");
-            }
+            let account = match (offline, accounts.active().await?) {
+                (Some(name), _) => {
+                    if !is_valid_username(&name) {
+                        bail!("'{name}' isn't a valid username (3-16 letters, digits or _)");
+                    }
+                    Account::offline(&name)
+                }
+                (None, Some(uuid)) => {
+                    println!("Signing in...");
+                    accounts.launch_account(uuid).await?
+                }
+                (None, None) => bail!("No account signed in. Run `bagel login`, or pass --offline <name>."),
+            };
+            let name = account.username.clone();
             let game = resolve_game(&launcher, &version, &loader).await?;
             let (progress, bar) = progress_bar();
             let options = LaunchOptions {
-                account: Account::offline(&name),
+                account,
                 game_dir: game_dir.unwrap_or_else(|| cli_game_dir(&launcher, &game)),
                 memory_mb: memory,
             };
@@ -139,6 +160,33 @@ async fn main() -> anyhow::Result<()> {
                 .wait()
                 .await?;
             println!("Minecraft exited with {status}");
+        }
+        Command::Login => {
+            let login = accounts.start_login().await?;
+            println!("Open {} and enter the code: {}", login.verification_uri, login.user_code);
+            println!("Waiting for you to sign in (Ctrl+C to cancel)...");
+            let account = accounts.finish_login(&login).await?;
+            println!("Signed in as {}.", account.username);
+        }
+        Command::Accounts => {
+            let list = accounts.list().await?;
+            if list.accounts.is_empty() {
+                println!("No accounts. Run `bagel login`.");
+            }
+            for a in &list.accounts {
+                let marker = if list.active == Some(a.uuid) { "*" } else { " " };
+                println!("{marker} {:<16} {}", a.username, a.uuid);
+            }
+        }
+        Command::Logout { username } => {
+            let list = accounts.list().await?;
+            let account = list
+                .accounts
+                .iter()
+                .find(|a| a.username.eq_ignore_ascii_case(&username))
+                .with_context(|| format!("no signed-in account named {username}"))?;
+            accounts.remove(account.uuid).await?;
+            println!("Removed {}.", account.username);
         }
     }
     Ok(())

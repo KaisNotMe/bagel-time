@@ -38,6 +38,9 @@ pub enum Error {
     #[error("no Java runtime '{component}' is available for {platform}")]
     NoJavaRuntime { component: String, platform: String },
 
+    #[error(transparent)]
+    Auth(#[from] crate::auth::AuthError),
+
     #[error("zip error: {0}")]
     Zip(#[from] zip::result::ZipError),
 
