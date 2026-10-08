@@ -1,17 +1,21 @@
-//! Modrinth browsing, content inside instances (mods, resource packs,
-//! shaders) and modpack installs.
+//! Browsing Modrinth and CurseForge, content inside instances (mods,
+//! resource packs, shaders) and modpack installs.
 //!
-//! Modpack installs report progress through the `pack-progress` event.
+//! Every browsing command takes a `source`; results have the same shape for
+//! both sites. Modpack installs report progress through the `pack-progress`
+//! event.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use bagel_core::content::{ContentKind, ContentUpdate, InstalledContent, InstanceContent};
+use bagel_core::cfpack::{self, ManualDownload, PackInstall};
+use bagel_core::content::{ContentKind, ContentUpdate, InstalledContent, InstanceContent, Source};
+use bagel_core::curseforge::CurseForge;
 use bagel_core::modrinth::{
     Category, ProjectDetails, ProjectType, SearchQuery, SearchResults, SortBy, TeamMember, Version,
 };
 use bagel_core::{mrpack, Loader, Progress};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use crate::commands::{view, InstanceView};
@@ -28,6 +32,8 @@ fn err(e: impl std::fmt::Display) -> String {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchArgs {
+    #[serde(default)]
+    source: Source,
     text: String,
     project_type: ProjectType,
     game_version: Option<String>,
@@ -42,7 +48,7 @@ pub struct SearchArgs {
 }
 
 #[tauri::command]
-pub async fn search_modrinth(state: State<'_>, args: SearchArgs) -> CmdResult<SearchResults> {
+pub async fn search_projects(state: State<'_>, args: SearchArgs) -> CmdResult<SearchResults> {
     let query = SearchQuery {
         text: args.text,
         project_type: Some(args.project_type),
@@ -53,39 +59,85 @@ pub async fn search_modrinth(state: State<'_>, args: SearchArgs) -> CmdResult<Se
         offset: args.offset,
         limit: args.limit,
     };
-    state.modrinth.search(&query).await.map_err(err)
+    match args.source {
+        Source::Modrinth => state.sources.modrinth.search(&query).await,
+        Source::CurseForge => state.sources.curseforge.search(&query).await,
+    }
+    .map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurseForgeStatus {
+    /// A key is available from somewhere.
+    has_key: bool,
+    /// The key comes from the environment or the build, not settings.
+    managed: bool,
 }
 
 #[tauri::command]
-pub async fn get_project(state: State<'_>, id: String) -> CmdResult<ProjectDetails> {
-    state.modrinth.project_details(&id).await.map_err(err)
+pub fn curseforge_status(state: State<'_>) -> CurseForgeStatus {
+    CurseForgeStatus {
+        has_key: state.sources.curseforge.has_key(),
+        managed: CurseForge::key_from_env() || CurseForge::has_builtin_key(),
+    }
 }
 
 #[tauri::command]
-pub async fn get_project_members(state: State<'_>, id: String) -> CmdResult<Vec<TeamMember>> {
-    state.modrinth.members(&id).await.map_err(err)
+pub async fn get_project(state: State<'_>, source: Source, id: String) -> CmdResult<ProjectDetails> {
+    match source {
+        Source::Modrinth => state.sources.modrinth.project_details(&id).await,
+        Source::CurseForge => state.sources.curseforge.project_details(&id).await,
+    }
+    .map_err(err)
+}
+
+#[tauri::command]
+pub async fn get_project_members(state: State<'_>, source: Source, id: String) -> CmdResult<Vec<TeamMember>> {
+    match source {
+        Source::Modrinth => state.sources.modrinth.members(&id).await,
+        Source::CurseForge => state.sources.curseforge.members(&id).await,
+    }
+    .map_err(err)
 }
 
 /// A project's versions, newest first. Empty filters mean "any".
 #[tauri::command]
 pub async fn get_project_versions(
     state: State<'_>,
+    source: Source,
     id: String,
     loaders: Vec<String>,
     game_versions: Vec<String>,
 ) -> CmdResult<Vec<Version>> {
     let loaders: Vec<&str> = loaders.iter().map(String::as_str).collect();
     let game_versions: Vec<&str> = game_versions.iter().map(String::as_str).collect();
-    state
-        .modrinth
-        .project_versions(&id, &loaders, &game_versions)
-        .await
-        .map_err(err)
+    match source {
+        Source::Modrinth => {
+            state
+                .sources
+                .modrinth
+                .project_versions(&id, &loaders, &game_versions)
+                .await
+        }
+        Source::CurseForge => {
+            state
+                .sources
+                .curseforge
+                .project_versions(&id, &loaders, &game_versions)
+                .await
+        }
+    }
+    .map_err(err)
 }
 
 #[tauri::command]
-pub async fn get_categories(state: State<'_>) -> CmdResult<Vec<Category>> {
-    state.modrinth.categories().await.map_err(err)
+pub async fn get_categories(state: State<'_>, source: Source) -> CmdResult<Vec<Category>> {
+    match source {
+        Source::Modrinth => state.sources.modrinth.categories().await,
+        Source::CurseForge => state.sources.curseforge.categories().await,
+    }
+    .map_err(err)
 }
 
 async fn content(state: &AppState, id: &str, kind: ContentKind) -> CmdResult<InstanceContent> {
@@ -126,7 +178,7 @@ pub async fn list_content(state: State<'_>, id: String) -> CmdResult<Vec<Install
 pub async fn identify_content(state: State<'_>, id: String) -> CmdResult<bool> {
     let mut changed = false;
     for c in all_content(&state, &id).await? {
-        changed |= c.identify(&state.modrinth).await.map_err(err)?;
+        changed |= c.identify(&state.sources).await.map_err(err)?;
     }
     Ok(changed)
 }
@@ -136,16 +188,17 @@ pub async fn install_content(
     state: State<'_>,
     id: String,
     kind: ContentKind,
+    source: Source,
     project_id: String,
     version_id: Option<String>,
 ) -> CmdResult<()> {
     ensure_stopped(&state, &id)?;
     let c = content(&state, &id, kind).await?;
     let plan = c
-        .plan(&state.modrinth, &project_id, version_id.as_deref())
+        .plan(&state.sources, source, &project_id, version_id.as_deref())
         .await
         .map_err(err)?;
-    c.install(&state.modrinth, &plan, &Progress::none())
+    c.install(state.sources.modrinth.downloader(), &plan, &Progress::none())
         .await
         .map_err(err)
 }
@@ -180,7 +233,7 @@ pub async fn remove_content(state: State<'_>, id: String, kind: ContentKind, fil
 pub async fn check_content_updates(state: State<'_>, id: String) -> CmdResult<Vec<ContentUpdate>> {
     let mut out = Vec::new();
     for c in all_content(&state, &id).await? {
-        out.extend(c.check_updates(&state.modrinth).await.map_err(err)?);
+        out.extend(c.check_updates(&state.sources).await.map_err(err)?);
     }
     Ok(out)
 }
@@ -189,32 +242,65 @@ fn pack_progress(app: &AppHandle) -> Progress {
     progress_reporter(app.clone(), "pack-progress", String::new())
 }
 
-/// Installs a Modrinth modpack as a new instance.
+/// A new instance from a modpack, plus files to download by hand.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackResult {
+    instance: InstanceView,
+    manual: Vec<ManualDownload>,
+}
+
+fn pack_result(state: &AppState, done: PackInstall) -> PackResult {
+    PackResult {
+        instance: view(state, done.instance),
+        manual: done.manual,
+    }
+}
+
+/// Installs a modpack from Modrinth or CurseForge as a new instance.
 #[tauri::command]
 pub async fn install_modpack(
     app: AppHandle,
     state: State<'_>,
+    source: Source,
     project_id: String,
     version_id: Option<String>,
-) -> CmdResult<InstanceView> {
-    let instance = mrpack::install_from_modrinth(
-        state.launcher.paths(),
-        &state.store,
-        &state.modrinth,
-        &project_id,
-        version_id.as_deref(),
-        &pack_progress(&app),
-    )
-    .await
-    .map_err(err)?;
-    Ok(view(&state, instance))
+) -> CmdResult<PackResult> {
+    let paths = state.launcher.paths();
+    let progress = pack_progress(&app);
+    let done = match source {
+        Source::Modrinth => PackInstall {
+            instance: mrpack::install_from_modrinth(
+                paths,
+                &state.store,
+                &state.sources,
+                &project_id,
+                version_id.as_deref(),
+                &progress,
+            )
+            .await
+            .map_err(err)?,
+            manual: Vec::new(),
+        },
+        Source::CurseForge => cfpack::install_from_curseforge(
+            paths,
+            &state.store,
+            &state.sources,
+            &project_id,
+            version_id.as_deref(),
+            &progress,
+        )
+        .await
+        .map_err(err)?,
+    };
+    Ok(pack_result(&state, done))
 }
 
-/// Creates an instance from a `.mrpack` file on disk.
+/// Creates an instance from a `.mrpack` or CurseForge `.zip` on disk.
 #[tauri::command]
-pub async fn import_mrpack(app: AppHandle, state: State<'_>, path: PathBuf) -> CmdResult<InstanceView> {
-    let instance = mrpack::install_pack(&state.store, &state.modrinth, &path, &pack_progress(&app))
+pub async fn import_pack(app: AppHandle, state: State<'_>, path: PathBuf) -> CmdResult<PackResult> {
+    let done = cfpack::import_file(&state.store, &state.sources, &path, &pack_progress(&app))
         .await
         .map_err(err)?;
-    Ok(view(&state, instance))
+    Ok(pack_result(&state, done))
 }

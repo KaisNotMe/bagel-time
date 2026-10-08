@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { api, errorMessage, type ContentKind, type ProjectType } from "$lib/api";
+  import { openUrl } from "@tauri-apps/plugin-opener";
+  import { api, errorMessage, type ContentKind, type ProjectType, type Source } from "$lib/api";
   import { games } from "$lib/games.svelte";
   import { packs } from "$lib/packs.svelte";
   import Icon from "./Icon.svelte";
   import InstallPicker from "./InstallPicker.svelte";
 
   type Props = {
+    source?: Source;
     projectId: string;
     title: string;
     projectType: ProjectType;
@@ -14,9 +16,12 @@
     instanceId?: string | null;
     installed?: boolean;
     small?: boolean;
+    /** The author only allows downloads from the website; link there instead. */
+    blockedUrl?: string | null;
     oninstalled?: () => void;
   };
   let {
+    source = "modrinth",
     projectId,
     title,
     projectType,
@@ -24,6 +29,7 @@
     instanceId = null,
     installed = false,
     small = false,
+    blockedUrl = null,
     oninstalled,
   }: Props = $props();
 
@@ -36,7 +42,7 @@
   async function click() {
     error = "";
     if (projectType === "modpack") {
-      await packs.installFromModrinth(projectId, title, versionId);
+      await packs.install(source, projectId, title, versionId);
       return;
     }
     if (!instanceId) {
@@ -45,7 +51,7 @@
     }
     busy = true;
     try {
-      await api.installContent(instanceId, projectType as ContentKind, projectId, versionId);
+      await api.installContent(instanceId, projectType as ContentKind, source, projectId, versionId);
       oninstalled?.();
     } catch (e) {
       error = errorMessage(e);
@@ -58,6 +64,19 @@
 <div class="wrap">
   {#if installed && !versionId}
     <span class="installed" class:small><Icon name="check" size={15} /> Installed</span>
+  {:else if blockedUrl}
+    <button
+      class="btn"
+      class:sm={small}
+      title="The author only allows downloads from the CurseForge website"
+      onclick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openUrl(blockedUrl);
+      }}
+    >
+      <Icon name="external" size={small ? 14 : 16} /> Get on CurseForge
+    </button>
   {:else}
     <button
       class="btn primary"
@@ -80,6 +99,7 @@
 {#if projectType !== "modpack"}
   <InstallPicker
     open={picking}
+    {source}
     {projectId}
     {title}
     kind={projectType as ContentKind}

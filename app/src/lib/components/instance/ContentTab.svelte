@@ -117,7 +117,7 @@
   }
 
   function askRemove(list: InstalledContent[]) {
-    // Files from Modrinth can be downloaded again; anything else gets a check first.
+    // Files from a site can be downloaded again; anything else gets a check first.
     if (list.length === 1 && list[0].projectId) remove(list);
     else confirmRemove = list;
   }
@@ -125,7 +125,7 @@
   function update(list: ContentUpdate[]) {
     return guard(list.map(key), async () => {
       for (const u of list) {
-        await api.installContent(instance.id, u.kind, u.projectId, u.versionId);
+        await api.installContent(instance.id, u.kind, u.source, u.projectId, u.versionId);
         delete updates[key(u)];
       }
       await load();
@@ -158,7 +158,7 @@
 
   function installShaderMod() {
     return guard(["iris"], async () => {
-      await api.installContent(instance.id, "mod", shaderMod.slug);
+      await api.installContent(instance.id, "mod", "modrinth", shaderMod.slug);
       await load();
     });
   }
@@ -228,7 +228,7 @@
     <div class="empty-state card">
       <Icon name="puzzle" size={36} stroke={1.4} />
       <h3>No content yet</h3>
-      <p>Add mods, resource packs or shaders from Modrinth.</p>
+      <p>Add mods, resource packs or shaders from Modrinth or CurseForge.</p>
       <a class="btn primary" href="/discover?type={kinds[0]}&instance={encodeURIComponent(instance.id)}">
         <Icon name="compass" size={16} /> Discover content
       </a>
@@ -274,14 +274,14 @@
             <ProjectIcon url={item.iconUrl} name={item.title} size={38} />
             <div class="name-text">
               {#if item.projectId}
-                <a class="title" href="/project?id={item.projectId}&instance={encodeURIComponent(instance.id)}">{item.title}</a>
+                <a class="title" href="/project?source={item.source}&id={item.projectId}&instance={encodeURIComponent(instance.id)}">{item.title}</a>
               {:else}
                 <span class="title">{item.title}</span>
               {/if}
               <span class="tags">
                 {#if kindFilter === "all"}<span class="tag">{PROJECT_TYPE_NAMES[item.kind].one}</span>{/if}
                 {#if item.dependency}<span class="tag">Dependency</span>{/if}
-                {#if !item.projectId}<span class="tag">Not on Modrinth</span>{/if}
+                {#if !item.projectId}<span class="tag">Unknown file</span>{:else if item.source === "curseforge"}<span class="tag">CurseForge</span>{/if}
               </span>
             </div>
           </div>
@@ -331,7 +331,7 @@
 
 <Modal open={confirmRemove !== null} title="Remove {confirmRemove?.length === 1 ? 'file' : `${confirmRemove?.length} files`}?" onclose={() => (confirmRemove = null)}>
   {#if confirmRemove?.some((i) => !i.projectId)}
-    <p>Some of these aren't on Modrinth, so Bagel Time can't download them again.</p>
+    <p>Some of these aren't from Modrinth or CurseForge, so Bagel Time can't download them again.</p>
   {/if}
   <ul class="remove-list">
     {#each confirmRemove ?? [] as i (key(i))}<li>{i.title}</li>{/each}

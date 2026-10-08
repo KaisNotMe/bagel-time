@@ -87,6 +87,9 @@ pub struct SearchHit {
     #[serde(default)]
     pub display_categories: Vec<String>,
     pub project_type: String,
+    /// CurseForge projects whose authors only allow downloads from the website.
+    #[serde(default)]
+    pub downloads_blocked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +155,11 @@ pub struct ProjectDetails {
     pub discord_url: Option<String>,
     #[serde(default)]
     pub gallery: Vec<GalleryImage>,
+    /// The project page, when the API gives one (CurseForge).
+    #[serde(default)]
+    pub website_url: Option<String>,
+    #[serde(default)]
+    pub downloads_blocked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,6 +214,12 @@ pub struct Category {
     pub project_type: String,
     /// Group heading, e.g. "categories", "features", "resolutions".
     pub header: String,
+    /// Display name when `name` is an id (CurseForge).
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Image icon, used instead of `icon` (CurseForge).
+    #[serde(default)]
+    pub icon_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

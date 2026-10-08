@@ -1,15 +1,25 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { renderMarkdown } from "$lib/markdown";
+  import { renderHtml, renderMarkdown } from "$lib/markdown";
 
-  let { source }: { source: string } = $props();
-  let html = $derived(renderMarkdown(source));
+  // `html`: the source is already HTML (CurseForge), not Markdown.
+  let { source, html: isHtml = false }: { source: string; html?: boolean } = $props();
+  let html = $derived(isHtml ? renderHtml(source) : renderMarkdown(source));
+
+  // CurseForge wraps outside links as /linkout?remoteUrl=<encoded url>.
+  function realUrl(href: string): string {
+    const out = href.match(/^(?:https:\/\/www\.curseforge\.com)?\/linkout\?remoteUrl=(.+)$/i);
+    if (!out) return href;
+    let url = out[1];
+    for (let i = 0; i < 3 && /%[0-9a-f]{2}/i.test(url); i++) url = decodeURIComponent(url);
+    return url;
+  }
 
   // Links open in the real browser, not inside the launcher.
   function onclick(e: MouseEvent) {
     const link = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
     if (!link) return;
-    const href = link.getAttribute("href") ?? "";
+    const href = realUrl(link.getAttribute("href") ?? "");
     if (/^https?:\/\//i.test(href)) {
       e.preventDefault();
       openUrl(href);

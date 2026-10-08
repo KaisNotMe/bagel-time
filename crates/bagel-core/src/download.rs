@@ -50,6 +50,11 @@ impl Downloader {
         Self { client }
     }
 
+    /// The shared HTTP client, for requests that need extra headers.
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
         let resp = self.client.get(url).send().await?.error_for_status()?;
         Ok(resp.bytes().await?.to_vec())

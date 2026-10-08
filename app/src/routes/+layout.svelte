@@ -6,6 +6,7 @@
   import BagelLogo from "$lib/components/BagelLogo.svelte";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import InstanceIcon from "$lib/components/InstanceIcon.svelte";
+  import ManualDownloads from "$lib/components/ManualDownloads.svelte";
   import NewInstanceDialog from "$lib/components/NewInstanceDialog.svelte";
   import { api } from "$lib/api";
   import { account } from "$lib/account.svelte";
@@ -170,11 +171,13 @@
   }}
 />
 
+<ManualDownloads />
+
 {#if packs.dragging}
   <div class="drop" aria-hidden="true">
     <div>
       <Icon name="box" size={40} stroke={1.5} />
-      Drop a .mrpack file to create an instance
+      Drop a modpack (.mrpack or CurseForge .zip) to create an instance
     </div>
   </div>
 {/if}

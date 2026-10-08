@@ -5,22 +5,56 @@
 //! or `.zip` (packs) in it counts, and a `.disabled` suffix turns one off.
 //! Next to `instance.json`, a manifest per kind (`mods.json`,
 //! `resourcepacks.json`, `shaderpacks.json`) remembers where each file came
-//! from (Modrinth project and version, title, icon) so the UI can show names
-//! and check for updates.
+//! from (Modrinth or CurseForge project and version, title, icon) so the UI
+//! can show names and check for updates.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::download::{DownloadJob, sha1_file};
+use crate::curseforge::{self, CurseForge};
+use crate::download::{DownloadJob, Downloader, sha1_file};
 use crate::error::{Error, IoContext, Result, parse_json};
 use crate::instance::{Instance, InstanceStore};
 use crate::loaders::{GameVersion, Loader};
-use crate::modrinth::{Modrinth, PlannedMod, ProjectType, Target, mod_loaders};
+use crate::modrinth::{Modrinth, ProjectType, Target, mod_loaders};
 use crate::progress::Progress;
 
 const DISABLED: &str = ".disabled";
+
+/// Where a project comes from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    #[default]
+    Modrinth,
+    CurseForge,
+}
+
+/// Both sites' clients.
+#[derive(Clone, Default)]
+pub struct Sources {
+    pub modrinth: Modrinth,
+    pub curseforge: CurseForge,
+}
+
+/// One file to download into an instance.
+#[derive(Debug, Clone)]
+pub struct PlannedContent {
+    pub source: Source,
+    pub project_id: String,
+    pub version_id: String,
+    pub version_number: String,
+    pub file_name: String,
+    pub url: String,
+    pub sha1: Option<String>,
+    pub size: Option<u64>,
+    pub title: String,
+    pub icon_url: Option<String>,
+    /// Installed because something else needs it.
+    pub dependency: bool,
+}
 
 /// Installs, toggles and removals all rewrite a manifest; one at a time.
 static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -125,6 +159,8 @@ struct Entry {
     file_name: String,
     title: String,
     #[serde(default)]
+    source: Source,
+    #[serde(default)]
     project_id: Option<String>,
     #[serde(default)]
     version_id: Option<String>,
@@ -138,6 +174,9 @@ struct Entry {
     /// Installed because another mod needed it.
     #[serde(default)]
     dependency: bool,
+    /// Already looked up on CurseForge (by fingerprint).
+    #[serde(default)]
+    curseforge_checked: bool,
 }
 
 impl Entry {
@@ -145,12 +184,14 @@ impl Entry {
         Self {
             file_name: file_name.to_string(),
             title: title_from_file(file_name),
+            source: Source::Modrinth,
             project_id: None,
             version_id: None,
             version_number: None,
             icon_url: None,
             sha1: None,
             dependency: false,
+            curseforge_checked: false,
         }
     }
 }
@@ -164,6 +205,7 @@ pub struct InstalledContent {
     pub enabled: bool,
     pub size: u64,
     pub title: String,
+    pub source: Source,
     pub project_id: Option<String>,
     pub version_id: Option<String>,
     pub version_number: Option<String>,
@@ -176,6 +218,7 @@ pub struct InstalledContent {
 pub struct ContentUpdate {
     pub kind: ContentKind,
     pub file_name: String,
+    pub source: Source,
     pub project_id: String,
     pub version_id: String,
     pub version_number: String,
@@ -274,6 +317,7 @@ impl InstanceContent {
                     enabled: f.enabled,
                     size: f.size,
                     title: entry.title,
+                    source: entry.source,
                     project_id: entry.project_id,
                     version_id: entry.version_id,
                     version_number: entry.version_number,
@@ -286,14 +330,24 @@ impl InstanceContent {
         Ok(out)
     }
 
-    /// Modrinth project ids of the files present in the folder.
+    /// Project ids (from either site) of the files present in the folder.
     pub async fn installed_projects(&self) -> Result<HashSet<String>> {
         Ok(self.list().await?.into_iter().filter_map(|m| m.project_id).collect())
     }
 
+    pub fn target(&self) -> Target {
+        self.kind.target(&self.game)
+    }
+
     /// Works out what to download for a project (and, for mods, its
     /// required dependencies).
-    pub async fn plan(&self, modrinth: &Modrinth, project_id: &str, version_id: Option<&str>) -> Result<Vec<PlannedMod>> {
+    pub async fn plan(
+        &self,
+        sources: &Sources,
+        source: Source,
+        project_id: &str,
+        version_id: Option<&str>,
+    ) -> Result<Vec<PlannedContent>> {
         if !self.kind.supported_by(self.game.loader) {
             return Err(Error::Mods(format!(
                 "Vanilla instances can't use {}s. Create a Fabric or Quilt instance instead.",
@@ -301,58 +355,119 @@ impl InstanceContent {
             )));
         }
         let installed = self.installed_projects().await?;
-        let target = self.kind.target(&self.game);
-        modrinth
-            .plan_install(project_id, version_id, &target, self.kind == ContentKind::Mod, &installed)
-            .await
+        let target = self.target();
+        let with_deps = self.kind == ContentKind::Mod;
+        match source {
+            Source::Modrinth => {
+                let modrinth = &sources.modrinth;
+                let plan = modrinth
+                    .plan_install(project_id, version_id, &target, with_deps, &installed)
+                    .await?;
+                let ids: Vec<String> = plan.iter().map(|p| p.version.project_id.clone()).collect();
+                let projects: HashMap<String, _> = modrinth
+                    .projects(&ids)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|p| (p.id.clone(), p))
+                    .collect();
+                plan.into_iter()
+                    .map(|planned| {
+                        let v = planned.version;
+                        let file = v.primary_file().ok_or_else(|| {
+                            Error::Mods(format!("Version {} has no files to download.", v.version_number))
+                        })?;
+                        let project = projects.get(&v.project_id);
+                        Ok(PlannedContent {
+                            source,
+                            project_id: v.project_id.clone(),
+                            version_id: v.id.clone(),
+                            version_number: v.version_number.clone(),
+                            file_name: file.filename.clone(),
+                            url: file.url.clone(),
+                            sha1: Some(file.hashes.sha1.clone()),
+                            size: Some(file.size),
+                            title: project.map_or_else(|| title_from_file(&file.filename), |p| p.title.clone()),
+                            icon_url: project.and_then(|p| p.icon_url.clone()),
+                            dependency: planned.dependency,
+                        })
+                    })
+                    .collect()
+            }
+            Source::CurseForge => {
+                let cf = &sources.curseforge;
+                let plan = cf
+                    .plan_install(project_id, version_id, &target, with_deps, &installed)
+                    .await?;
+                let ids: Vec<u64> = plan.iter().map(|p| p.file.mod_id).collect();
+                let mods: HashMap<u64, _> = cf
+                    .mods(&ids)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|m| (m.id, m))
+                    .collect();
+                plan.into_iter()
+                    .map(|planned| {
+                        let f = planned.file;
+                        let m = mods.get(&f.mod_id);
+                        let title = m.map_or_else(|| title_from_file(&f.file_name), |m| m.name.clone());
+                        let url = f.download_url.clone().ok_or_else(|| {
+                            Error::Mods(format!(
+                                "{title}'s author only allows downloading it from the CurseForge website."
+                            ))
+                        })?;
+                        Ok(PlannedContent {
+                            source,
+                            project_id: f.mod_id.to_string(),
+                            version_id: f.id.to_string(),
+                            version_number: f.display_name.clone(),
+                            file_name: f.file_name.clone(),
+                            url,
+                            sha1: f.sha1(),
+                            size: Some(f.file_length).filter(|s| *s > 0),
+                            title,
+                            icon_url: m.and_then(|m| m.icon_url()),
+                            dependency: planned.dependency,
+                        })
+                    })
+                    .collect()
+            }
+        }
     }
 
     /// Downloads planned files into the folder, replacing older files of the
     /// same projects.
-    pub async fn install(&self, modrinth: &Modrinth, plan: &[PlannedMod], progress: &Progress) -> Result<()> {
+    pub async fn install(&self, dl: &Downloader, plan: &[PlannedContent], progress: &Progress) -> Result<()> {
         let _guard = LOCK.lock().await;
         let mut manifest = self.prune(self.read_manifest().await?).await?;
 
         let mut jobs = Vec::new();
-        for planned in plan {
-            let v = &planned.version;
-            let file = v.primary_file().ok_or_else(|| {
-                Error::Mods(format!("Version {} has no files to download.", v.version_number))
-            })?;
-            if !is_plain_file_name(&file.filename) {
-                return Err(Error::Mods(format!("Refusing to save a file as \"{}\".", file.filename)));
+        for p in plan {
+            if !is_plain_file_name(&p.file_name) {
+                return Err(Error::Mods(format!("Refusing to save a file as \"{}\".", p.file_name)));
             }
             jobs.push(DownloadJob {
-                url: file.url.clone(),
-                path: self.dir.join(&file.filename),
-                sha1: Some(file.hashes.sha1.clone()),
-                size: Some(file.size),
+                url: p.url.clone(),
+                path: self.dir.join(&p.file_name),
+                sha1: p.sha1.clone(),
+                size: p.size,
             });
         }
         tokio::fs::create_dir_all(&self.dir).await.at(&self.dir)?;
-        modrinth.downloader().fetch_all("Downloading", jobs, progress).await?;
+        dl.fetch_all("Downloading", jobs, progress).await?;
 
-        let ids: Vec<String> = plan.iter().map(|p| p.version.project_id.clone()).collect();
-        let projects: HashMap<String, _> = modrinth
-            .projects(&ids)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| (p.id.clone(), p))
-            .collect();
-
-        for planned in plan {
-            let v = &planned.version;
-            let file = v.primary_file().expect("checked above");
+        for p in plan {
             // Remove older files of this project, keeping whether the user
             // installed it themselves.
-            let mut dependency = planned.dependency;
+            let mut dependency = p.dependency;
             let mut kept = Vec::with_capacity(manifest.files.len());
             for entry in manifest.files.drain(..) {
-                let same_project = entry.project_id.as_deref() == Some(v.project_id.as_str());
-                if same_project || entry.file_name == file.filename {
+                let same_project =
+                    entry.source == p.source && entry.project_id.as_deref() == Some(p.project_id.as_str());
+                if same_project || entry.file_name == p.file_name {
                     dependency &= entry.dependency;
-                    if entry.file_name != file.filename {
+                    if entry.file_name != p.file_name {
                         self.delete_files(&entry.file_name).await?;
                     }
                 } else {
@@ -361,18 +476,23 @@ impl InstanceContent {
             }
             manifest.files = kept;
             // A disabled copy of the same file would otherwise linger.
-            remove_if_exists(&self.dir.join(format!("{}{DISABLED}", file.filename))).await?;
+            remove_if_exists(&self.dir.join(format!("{}{DISABLED}", p.file_name))).await?;
 
-            let project = projects.get(&v.project_id);
+            let sha1 = match &p.sha1 {
+                Some(h) => h.clone(),
+                None => sha1_file(&self.dir.join(&p.file_name)).await?,
+            };
             manifest.files.push(Entry {
-                file_name: file.filename.clone(),
-                title: project.map_or_else(|| title_from_file(&file.filename), |p| p.title.clone()),
-                project_id: Some(v.project_id.clone()),
-                version_id: Some(v.id.clone()),
-                version_number: Some(v.version_number.clone()),
-                icon_url: project.and_then(|p| p.icon_url.clone()),
-                sha1: Some(file.hashes.sha1.clone()),
+                file_name: p.file_name.clone(),
+                title: p.title.clone(),
+                source: p.source,
+                project_id: Some(p.project_id.clone()),
+                version_id: Some(p.version_id.clone()),
+                version_number: Some(p.version_number.clone()),
+                icon_url: p.icon_url.clone(),
+                sha1: Some(sha1),
                 dependency,
+                curseforge_checked: true,
             });
         }
         self.write_manifest(&manifest).await
@@ -419,12 +539,23 @@ impl InstanceContent {
         Ok(manifest)
     }
 
+    fn file_path(&self, file_name: &str, enabled: bool) -> PathBuf {
+        if enabled {
+            self.dir.join(file_name)
+        } else {
+            self.dir.join(format!("{file_name}{DISABLED}"))
+        }
+    }
+
     /// Hashes files that haven't been looked at yet (e.g. dropped in by hand
-    /// or from a modpack) and asks Modrinth what they are. Returns true if
-    /// anything new was learned.
-    pub async fn identify(&self, modrinth: &Modrinth) -> Result<bool> {
+    /// or from a modpack) and asks Modrinth, then CurseForge, what they are.
+    /// Returns true if anything new was learned.
+    pub async fn identify(&self, sources: &Sources) -> Result<bool> {
         let _guard = LOCK.lock().await;
         let mut manifest = self.prune(self.read_manifest().await?).await?;
+        let files = self.scan().await?;
+        let mut changed = false;
+
         let known: HashSet<String> = manifest
             .files
             .iter()
@@ -432,62 +563,106 @@ impl InstanceContent {
             .map(|m| m.file_name.clone())
             .collect();
         let mut hashed = Vec::new();
-        for f in self.scan().await? {
-            if known.contains(&f.file_name) {
-                continue;
-            }
-            let path = if f.enabled {
-                self.dir.join(&f.file_name)
-            } else {
-                self.dir.join(format!("{}{DISABLED}", f.file_name))
-            };
-            hashed.push((f.file_name, sha1_file(&path).await?));
+        for f in files.iter().filter(|f| !known.contains(&f.file_name)) {
+            hashed.push((f.file_name.clone(), sha1_file(&self.file_path(&f.file_name, f.enabled)).await?));
         }
-        if hashed.is_empty() {
+        if !hashed.is_empty() {
+            let modrinth = &sources.modrinth;
+            let hashes: Vec<String> = hashed.iter().map(|(_, h)| h.clone()).collect();
+            let versions = modrinth.versions_by_sha1(&hashes).await?;
+            let ids: Vec<String> = versions.values().map(|v| v.project_id.clone()).collect();
+            let projects: HashMap<String, _> = modrinth
+                .projects(&ids)
+                .await?
+                .into_iter()
+                .map(|p| (p.id.clone(), p))
+                .collect();
+            for (file_name, sha1) in hashed {
+                manifest.files.retain(|m| m.file_name != file_name);
+                let mut entry = Entry::unknown(&file_name);
+                if let Some(v) = versions.get(&sha1) {
+                    if let Some(p) = projects.get(&v.project_id) {
+                        entry.title = p.title.clone();
+                        entry.icon_url = p.icon_url.clone();
+                    }
+                    entry.project_id = Some(v.project_id.clone());
+                    entry.version_id = Some(v.id.clone());
+                    entry.version_number = Some(v.version_number.clone());
+                }
+                entry.sha1 = Some(sha1);
+                manifest.files.push(entry);
+            }
+            changed = true;
+        }
+
+        // Whatever Modrinth doesn't know might be on CurseForge. Optional:
+        // without a key, or offline, the files just keep their names.
+        if sources.curseforge.has_key()
+            && let Ok(true) = self.identify_on_curseforge(&sources.curseforge, &mut manifest, &files).await
+        {
+            changed = true;
+        }
+
+        if changed {
+            self.write_manifest(&manifest).await?;
+        }
+        Ok(changed)
+    }
+
+    async fn identify_on_curseforge(&self, cf: &CurseForge, manifest: &mut Manifest, files: &[FoundFile]) -> Result<bool> {
+        let enabled: HashMap<&str, bool> = files.iter().map(|f| (f.file_name.as_str(), f.enabled)).collect();
+        let mut pending = Vec::new();
+        for entry in manifest.files.iter().filter(|e| e.project_id.is_none() && !e.curseforge_checked) {
+            let on = enabled.get(entry.file_name.as_str()).copied().unwrap_or(true);
+            let fp = curseforge::fingerprint_file(&self.file_path(&entry.file_name, on)).await?;
+            pending.push((entry.file_name.clone(), fp));
+        }
+        if pending.is_empty() {
             return Ok(false);
         }
-
-        let hashes: Vec<String> = hashed.iter().map(|(_, h)| h.clone()).collect();
-        let versions = modrinth.versions_by_sha1(&hashes).await?;
-        let ids: Vec<String> = versions.values().map(|v| v.project_id.clone()).collect();
-        let projects: HashMap<String, _> = modrinth
-            .projects(&ids)
-            .await?
-            .into_iter()
-            .map(|p| (p.id.clone(), p))
-            .collect();
-
-        for (file_name, sha1) in hashed {
-            manifest.files.retain(|m| m.file_name != file_name);
-            let mut entry = Entry::unknown(&file_name);
-            if let Some(v) = versions.get(&sha1) {
-                if let Some(p) = projects.get(&v.project_id) {
-                    entry.title = p.title.clone();
-                    entry.icon_url = p.icon_url.clone();
+        let fingerprints: Vec<u32> = pending.iter().map(|(_, fp)| *fp).collect();
+        let found = cf.files_by_fingerprint(&fingerprints).await?;
+        let ids: Vec<u64> = found.values().map(|f| f.mod_id).collect();
+        let mods: HashMap<u64, _> = cf.mods(&ids).await?.into_iter().map(|m| (m.id, m)).collect();
+        for (file_name, fp) in pending {
+            let Some(entry) = manifest.files.iter_mut().find(|e| e.file_name == file_name) else {
+                continue;
+            };
+            entry.curseforge_checked = true;
+            if let Some(f) = found.get(&fp) {
+                if let Some(m) = mods.get(&f.mod_id) {
+                    entry.title = m.name.clone();
+                    entry.icon_url = m.icon_url();
                 }
-                entry.project_id = Some(v.project_id.clone());
-                entry.version_id = Some(v.id.clone());
-                entry.version_number = Some(v.version_number.clone());
+                entry.source = Source::CurseForge;
+                entry.project_id = Some(f.mod_id.to_string());
+                entry.version_id = Some(f.id.to_string());
+                entry.version_number = Some(f.display_name.clone());
             }
-            entry.sha1 = Some(sha1);
-            manifest.files.push(entry);
         }
-        self.write_manifest(&manifest).await?;
         Ok(true)
     }
 
-    /// Files from Modrinth that have a newer version for this instance.
-    pub async fn check_updates(&self, modrinth: &Modrinth) -> Result<Vec<ContentUpdate>> {
+    /// Files that have a newer version for this instance on the site they
+    /// came from.
+    pub async fn check_updates(&self, sources: &Sources) -> Result<Vec<ContentUpdate>> {
         let present: HashSet<String> = self.scan().await?.into_iter().map(|f| f.file_name).collect();
         let manifest = self.read_manifest().await?;
+        let target = self.target();
         let tracked: Vec<&Entry> = manifest
             .files
             .iter()
-            .filter(|m| present.contains(&m.file_name) && m.project_id.is_some() && m.sha1.is_some())
+            .filter(|m| present.contains(&m.file_name) && m.project_id.is_some())
             .collect();
-        let hashes: Vec<String> = tracked.iter().filter_map(|m| m.sha1.clone()).collect();
-        let latest = modrinth.latest_by_sha1(&hashes, &self.kind.target(&self.game)).await?;
-        Ok(tracked
+
+        let from_modrinth: Vec<&Entry> = tracked
+            .iter()
+            .copied()
+            .filter(|m| m.source == Source::Modrinth && m.sha1.is_some())
+            .collect();
+        let hashes: Vec<String> = from_modrinth.iter().filter_map(|m| m.sha1.clone()).collect();
+        let latest = sources.modrinth.latest_by_sha1(&hashes, &target).await?;
+        let mut out: Vec<ContentUpdate> = from_modrinth
             .into_iter()
             .filter_map(|m| {
                 let v = latest.get(m.sha1.as_ref()?)?;
@@ -495,13 +670,45 @@ impl InstanceContent {
                     ContentUpdate {
                         kind: self.kind,
                         file_name: m.file_name.clone(),
+                        source: Source::Modrinth,
                         project_id: v.project_id.clone(),
                         version_id: v.id.clone(),
                         version_number: v.version_number.clone(),
                     }
                 })
             })
-            .collect())
+            .collect();
+
+        let from_curseforge: Vec<&Entry> = tracked
+            .iter()
+            .copied()
+            .filter(|m| m.source == Source::CurseForge && m.version_id.is_some())
+            .collect();
+        if !from_curseforge.is_empty() && sources.curseforge.has_key() {
+            let pairs: Vec<(String, String)> = from_curseforge
+                .iter()
+                .filter_map(|m| Some((m.project_id.clone()?, m.version_id.clone()?)))
+                .collect();
+            let newer = sources.curseforge.updates(&pairs, &target).await?;
+            for m in from_curseforge {
+                let Some(f) = m.project_id.as_ref().and_then(|p| newer.get(p)) else {
+                    continue;
+                };
+                // Files the author keeps off launchers can't be updated here.
+                if f.download_url.is_none() {
+                    continue;
+                }
+                out.push(ContentUpdate {
+                    kind: self.kind,
+                    file_name: m.file_name.clone(),
+                    source: Source::CurseForge,
+                    project_id: f.mod_id.to_string(),
+                    version_id: f.id.to_string(),
+                    version_number: f.display_name.clone(),
+                });
+            }
+        }
+        Ok(out)
     }
 }
 

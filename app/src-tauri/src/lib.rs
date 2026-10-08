@@ -7,15 +7,16 @@ use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 
-use bagel_core::modrinth::Modrinth;
-use bagel_core::{Accounts, InstanceStore, Launcher, Paths};
+use bagel_core::content::Sources;
+use bagel_core::curseforge::CurseForge;
+use bagel_core::{Accounts, InstanceStore, Launcher, Paths, Settings};
 
 /// Shared by every command. Cheap to clone via `Arc`.
 pub struct AppState {
     pub launcher: Launcher,
     pub store: InstanceStore,
     pub accounts: Accounts,
-    pub modrinth: Modrinth,
+    pub sources: Sources,
     pub games: games::Games,
     pub login: Mutex<Option<accounts::PendingLogin>>,
 }
@@ -24,10 +25,14 @@ pub struct AppState {
 pub fn run() {
     let paths = Paths::default_location().expect("this OS has no application data folder");
     let data_root = paths.root().to_path_buf();
+    let settings = tauri::async_runtime::block_on(Settings::load(&paths));
     let state = Arc::new(AppState {
         store: InstanceStore::new(&paths),
         accounts: Accounts::new(&paths),
-        modrinth: Modrinth::new(),
+        sources: Sources {
+            curseforge: CurseForge::new(&settings.curseforge_api_key),
+            ..Default::default()
+        },
         launcher: Launcher::new(paths),
         games: games::Games::default(),
         login: Mutex::new(None),
@@ -72,7 +77,8 @@ pub fn run() {
             accounts::cancel_login,
             accounts::set_active_account,
             accounts::remove_account,
-            content::search_modrinth,
+            content::search_projects,
+            content::curseforge_status,
             content::get_project,
             content::get_project_members,
             content::get_project_versions,
@@ -84,7 +90,7 @@ pub fn run() {
             content::remove_content,
             content::check_content_updates,
             content::install_modpack,
-            content::import_mrpack,
+            content::import_pack,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Bagel Time");

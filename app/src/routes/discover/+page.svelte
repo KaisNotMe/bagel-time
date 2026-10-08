@@ -6,12 +6,16 @@
     errorMessage,
     LOADER_NAMES,
     PROJECT_TYPE_NAMES,
+    projectPageUrl,
+    SOURCE_NAMES,
     supportedKinds,
     type Category,
+    type CurseForgeStatus,
     type Loader,
     type ProjectType,
     type SearchHit,
     type SortBy,
+    type Source,
     type VersionInfo,
   } from "$lib/api";
   import Icon from "$lib/components/Icon.svelte";
@@ -26,13 +30,15 @@
   const PAGE = 20;
   const ALL_TYPES: ProjectType[] = ["mod", "resourcepack", "shader", "modpack"];
   const TYPE_ICONS = { mod: "puzzle", resourcepack: "image", shader: "sun", modpack: "box" } as const;
-  const sorts: { value: SortBy; label: string }[] = [
-    { value: "relevance", label: "Relevance" },
+  const SOURCES: Source[] = ["modrinth", "curseforge"];
+  let source = $derived<Source>(page.url.searchParams.get("source") === "curseforge" ? "curseforge" : "modrinth");
+  let sorts = $derived<{ value: SortBy; label: string }[]>([
+    { value: "relevance", label: source === "curseforge" ? "Popularity" : "Relevance" },
     { value: "downloads", label: "Downloads" },
-    { value: "follows", label: "Follows" },
+    { value: "follows", label: source === "curseforge" ? "Rating" : "Follows" },
     { value: "updated", label: "Recently updated" },
     { value: "newest", label: "Newest" },
-  ];
+  ]);
 
   let instanceId = $derived(page.url.searchParams.get("instance"));
   let target = $derived(instanceId ? instances.get(instanceId) : undefined);
@@ -56,6 +62,8 @@
 
   let versions = $state<VersionInfo[]>([]);
   let categories = $state<Category[]>([]);
+  let cfStatus = $state<CurseForgeStatus | null>(null);
+  let needsKey = $derived(source === "curseforge" && cfStatus !== null && !cfStatus.hasKey);
   let installed = $state<Set<string>>(new Set());
   let scroller = $state<HTMLDivElement>();
 
@@ -72,7 +80,7 @@
     }
     return [...map.entries()].map(([header, items]) => ({
       header,
-      items: items.sort((a, b) => a.name.localeCompare(b.name)),
+      items: items.sort((a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name)),
     }));
   });
 
@@ -83,10 +91,23 @@
     );
   });
 
-  // Lists for the filters, once.
+  // Versions for the filter, once.
   $effect(() => {
     api.listVersions(false).then((v) => (versions = v)).catch(() => {});
-    api.getCategories().then((c) => (categories = c)).catch(() => {});
+    api.curseforgeStatus().then((s) => (cfStatus = s)).catch(() => {});
+  });
+
+  // Each site has its own categories.
+  $effect(() => {
+    const s = source;
+    categories = [];
+    if (needsKey) return;
+    api
+      .getCategories(s)
+      .then((c) => {
+        if (s === source) categories = c;
+      })
+      .catch(() => {});
   });
 
   async function loadInstalled() {
@@ -106,21 +127,27 @@
     loadInstalled();
   });
 
-  // New type: categories from another type don't apply.
+  // New type or site: its categories don't apply.
   $effect(() => {
-    void type;
+    void [type, source];
     selectedCategories = [];
   });
 
   // Back to the first page whenever the search changes.
   $effect(() => {
-    void [text, sort, type, effectiveVersion, effectiveLoader, selectedCategories.length];
+    void [text, sort, type, source, effectiveVersion, effectiveLoader, selectedCategories.length];
     pageIndex = 0;
   });
 
   let request = 0;
   $effect(() => {
+    if (needsKey) {
+      hits = [];
+      total = 0;
+      return;
+    }
     const args = {
+      source,
       text,
       projectType: type,
       gameVersion: effectiveVersion,
@@ -135,13 +162,13 @@
       loading = true;
       error = "";
       try {
-        const r = await api.searchModrinth(args);
+        const r = await api.searchProjects(args);
         if (id !== request) return;
         hits = r.hits;
         total = r.totalHits;
         scroller?.scrollTo({ top: 0 });
       } catch (e) {
-        if (id === request) error = `Couldn't reach Modrinth: ${errorMessage(e)}`;
+        if (id === request) error = `Couldn't search ${SOURCE_NAMES[args.source]}: ${errorMessage(e)}`;
       } finally {
         if (id === request) loading = false;
       }
@@ -149,9 +176,9 @@
     return () => clearTimeout(timer);
   });
 
-  function setType(t: ProjectType) {
+  function setParam(name: string, value: string) {
     const url = new URL(page.url);
-    url.searchParams.set("type", t);
+    url.searchParams.set(name, value);
     goto(url, { replaceState: true, keepFocus: true, noScroll: true });
   }
 
@@ -168,7 +195,8 @@
   }
 
   function projectHref(hit: SearchHit) {
-    return `/project?id=${encodeURIComponent(hit.slug)}${instanceId ? `&instance=${encodeURIComponent(instanceId)}` : ""}`;
+    const id = source === "curseforge" ? hit.projectId : hit.slug;
+    return `/project?source=${source}&id=${encodeURIComponent(id)}${instanceId ? `&instance=${encodeURIComponent(instanceId)}` : ""}`;
   }
 </script>
 
@@ -176,9 +204,16 @@
   <div class="page-inner">
     <div class="head">
       <h1 class="page-title">Discover</h1>
+      <div class="sources" role="tablist" aria-label="Site">
+        {#each SOURCES as s (s)}
+          <button role="tab" aria-selected={source === s} class:active={source === s} onclick={() => setParam("source", s)}>
+            {SOURCE_NAMES[s]}
+          </button>
+        {/each}
+      </div>
       <nav class="pills" aria-label="Project type">
         {#each types as t (t)}
-          <button class="pill" class:active={type === t} onclick={() => setType(t)}>
+          <button class="pill" class:active={type === t} onclick={() => setParam("type", t)}>
             <Icon name={TYPE_ICONS[t]} size={15} />
             {PROJECT_TYPE_NAMES[t].many}
           </button>
@@ -237,8 +272,10 @@
               {#each g.items as c (c.name)}
                 <label class="cat" class:on={selectedCategories.includes(c.name)}>
                   <input type="checkbox" checked={selectedCategories.includes(c.name)} onchange={() => toggleCategory(c.name)} />
-                  <span class="cat-icon">{@html safeSvg(c.icon)}</span>
-                  <span class="cat-name">{c.name.replace(/-/g, " ")}</span>
+                  <span class="cat-icon">
+                    {#if c.iconUrl}<img src={c.iconUrl} alt="" loading="lazy" />{:else}{@html safeSvg(c.icon)}{/if}
+                  </span>
+                  <span class="cat-name">{c.label ?? c.name.replace(/-/g, " ")}</span>
                 </label>
               {/each}
             </div>
@@ -271,8 +308,16 @@
           </label>
         </div>
 
+        {#if needsKey}
+          <div class="empty-state card">
+            <Icon name="key" size={32} stroke={1.4} />
+            <h3>CurseForge needs an API key</h3>
+            <p>Paste your CurseForge API key in Settings to browse and install from CurseForge.</p>
+            <a class="btn primary" href="/settings"><Icon name="settings" size={16} /> Open Settings</a>
+          </div>
+        {/if}
         {#if error}<p class="alert">{error}</p>{/if}
-        <p class="count faint">
+        <p class="count faint" class:hidden={needsKey}>
           {#if loading}Searching…{:else}{total.toLocaleString()} {total === 1 ? "result" : "results"}{/if}
         </p>
 
@@ -300,6 +345,8 @@
                   <span title="{hit.follows.toLocaleString()} followers"><Icon name="heart" size={14} /> {compactNumber(hit.follows)}</span>
                 </div>
                 <InstallButton
+                  {source}
+                  blockedUrl={hit.downloadsBlocked ? projectPageUrl(source, type, hit.slug) : null}
                   projectId={hit.projectId}
                   title={hit.title}
                   projectType={type}
@@ -310,7 +357,7 @@
               </div>
             </article>
           {:else}
-            {#if !loading && !error}
+            {#if !loading && !error && !needsKey}
               <div class="empty-state">
                 <Icon name="search" size={32} stroke={1.4} />
                 <h3>Nothing found</h3>
@@ -432,9 +479,41 @@
     width: 16px;
     height: 16px;
   }
-  .cat-icon :global(svg) {
+  .cat-icon :global(svg),
+  .cat-icon img {
     width: 16px;
     height: 16px;
+  }
+  .cat-icon img {
+    border-radius: 3px;
+    object-fit: cover;
+  }
+  .hidden {
+    display: none;
+  }
+  .sources {
+    display: flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: 11px;
+    background: var(--raised);
+  }
+  .sources button {
+    height: 30px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--muted);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .sources button:hover {
+    color: var(--text);
+  }
+  .sources button.active {
+    background: var(--raised-3);
+    color: var(--text);
   }
   .results {
     display: grid;

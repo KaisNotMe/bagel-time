@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, errorMessage, type Settings } from "$lib/api";
+  import { api, errorMessage, type CurseForgeStatus, type Settings } from "$lib/api";
   import { account } from "$lib/account.svelte";
   import LoginDialog from "$lib/components/LoginDialog.svelte";
   import { ui } from "$lib/ui.svelte";
@@ -11,6 +11,7 @@
   let saving = $state(false);
   let message = $state<{ ok: boolean; text: string } | null>(null);
   let signingIn = $state(false);
+  let cfStatus = $state<CurseForgeStatus | null>(null);
   let accountError = $state("");
 
   async function choose(uuid: string | null) {
@@ -35,6 +36,7 @@
     account.refresh();
     try {
       settings = await api.getSettings();
+      cfStatus = await api.curseforgeStatus();
     } catch (e) {
       message = { ok: false, text: errorMessage(e) };
     }
@@ -116,6 +118,26 @@
           ></textarea>
           <small>Added to every instance. An instance's own arguments come after these.</small>
         </label>
+      </section>
+
+      <section>
+        <h2>CurseForge</h2>
+        {#if cfStatus?.managed}
+          <p class="muted">This build already has a CurseForge API key.</p>
+        {:else}
+          <label class="field">
+            <span>API key</span>
+            <input
+              class="input mono"
+              type="password"
+              bind:value={settings.curseforgeApiKey}
+              placeholder="Paste your key from console.curseforge.com"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <small>Needed to browse and install from CurseForge. Stored only on this computer.</small>
+          </label>
+        {/if}
       </section>
 
       <section>

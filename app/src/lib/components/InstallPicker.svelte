@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, errorMessage, LOADER_NAMES, PROJECT_TYPE_NAMES, type ContentKind } from "$lib/api";
+  import { api, errorMessage, LOADER_NAMES, PROJECT_TYPE_NAMES, type ContentKind, type Source } from "$lib/api";
   import { games } from "$lib/games.svelte";
   import { instances } from "$lib/instances.svelte";
   import { ui } from "$lib/ui.svelte";
@@ -9,13 +9,14 @@
 
   type Props = {
     open: boolean;
+    source: Source;
     projectId: string;
     title: string;
     kind: ContentKind;
     versionId?: string | null;
     onclose: () => void;
   };
-  let { open, projectId, title, kind, versionId = null, onclose }: Props = $props();
+  let { open, source, projectId, title, kind, versionId = null, onclose }: Props = $props();
 
   type RowState = { busy?: boolean; done?: boolean; error?: string };
   let rows = $state<Record<string, RowState>>({});
@@ -30,7 +31,7 @@
   async function install(id: string) {
     rows[id] = { busy: true };
     try {
-      await api.installContent(id, kind, projectId, versionId);
+      await api.installContent(id, kind, source, projectId, versionId);
       rows[id] = { done: true };
     } catch (e) {
       rows[id] = { error: errorMessage(e) };
@@ -65,7 +66,7 @@
       </div>
     {:else}
       <p class="empty">
-        {kind === "resourcepack" ? "You don't have any instances yet." : "You need a Fabric or Quilt instance for this."}
+        {kind === "resourcepack" ? "You don't have any instances yet." : "You need a modded instance (Fabric, Quilt, Forge or NeoForge) for this."}
       </p>
     {/each}
   </div>

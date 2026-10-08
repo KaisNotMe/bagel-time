@@ -14,8 +14,8 @@ use crate::download::DownloadJob;
 use crate::error::{Error, IoContext, Result, parse_json};
 use crate::instance::{Instance, InstanceStore};
 use crate::loaders::{GameVersion, Loader};
-use crate::modrinth::{Modrinth, pick_best};
-use crate::content::{ContentKind, InstanceContent};
+use crate::content::{ContentKind, InstanceContent, Sources};
+use crate::modrinth::pick_best;
 use crate::paths::Paths;
 use crate::progress::Progress;
 
@@ -165,10 +165,10 @@ fn download_jobs(index: &PackIndex, game_dir: &Path) -> Result<Vec<DownloadJob>>
 }
 
 /// Copies `overrides/` and then `client-overrides/` into the game folder.
-fn extract_overrides(pack: &Path, game_dir: &Path) -> Result<()> {
+pub(crate) fn extract_overrides(pack: &Path, game_dir: &Path, prefixes: &[&str]) -> Result<()> {
     let file = std::fs::File::open(pack).at(pack)?;
     let mut zip = zip::ZipArchive::new(file)?;
-    for prefix in ["overrides/", "client-overrides/"] {
+    for prefix in prefixes {
         for i in 0..zip.len() {
             let mut entry = zip.by_index(i)?;
             if entry.is_dir() {
@@ -194,7 +194,7 @@ fn extract_overrides(pack: &Path, game_dir: &Path) -> Result<()> {
 /// again if anything fails part-way.
 pub async fn install_pack(
     store: &InstanceStore,
-    modrinth: &Modrinth,
+    sources: &Sources,
     pack: &Path,
     progress: &Progress,
 ) -> Result<Instance> {
@@ -205,7 +205,7 @@ pub async fn install_pack(
     download_jobs(&index, Path::new("."))?;
 
     let instance = store.create(&index.name, game).await?;
-    match fill_instance(store, modrinth, &instance, &index, pack, progress).await {
+    match fill_instance(store, sources, &instance, &index, pack, progress).await {
         Ok(()) => Ok(instance),
         Err(e) => {
             let _ = store.delete(&instance.id).await;
@@ -216,7 +216,7 @@ pub async fn install_pack(
 
 async fn fill_instance(
     store: &InstanceStore,
-    modrinth: &Modrinth,
+    sources: &Sources,
     instance: &Instance,
     index: &PackIndex,
     pack: &Path,
@@ -224,16 +224,16 @@ async fn fill_instance(
 ) -> Result<()> {
     let game_dir = store.game_dir(instance)?;
     let jobs = download_jobs(index, &game_dir)?;
-    modrinth.downloader().fetch_all("Downloading mods", jobs, progress).await?;
+    sources.modrinth.downloader().fetch_all("Downloading mods", jobs, progress).await?;
 
     progress.stage("Unpacking files", 0);
     let (pack, dir) = (pack.to_path_buf(), game_dir.clone());
-    tokio::task::spawn_blocking(move || extract_overrides(&pack, &dir)).await??;
+    tokio::task::spawn_blocking(move || extract_overrides(&pack, &dir, &["overrides/", "client-overrides/"])).await??;
 
     // Names and icons are nice to have; the pack works without them.
     progress.stage("Looking up mods", 0);
     for kind in ContentKind::ALL {
-        let _ = InstanceContent::new(store, instance, kind)?.identify(modrinth).await;
+        let _ = InstanceContent::new(store, instance, kind)?.identify(sources).await;
     }
     Ok(())
 }
@@ -243,16 +243,16 @@ async fn fill_instance(
 pub async fn install_from_modrinth(
     paths: &Paths,
     store: &InstanceStore,
-    modrinth: &Modrinth,
+    sources: &Sources,
     project_id: &str,
     version_id: Option<&str>,
     progress: &Progress,
 ) -> Result<Instance> {
     progress.stage("Finding the latest version", 0);
     let version = match version_id {
-        Some(id) => modrinth.version(id).await?,
+        Some(id) => sources.modrinth.version(id).await?,
         None => {
-            let versions = modrinth.project_versions(project_id, &[], &[]).await?;
+            let versions = sources.modrinth.project_versions(project_id, &[], &[]).await?;
             pick_best(&versions)
                 .cloned()
                 .ok_or_else(|| Error::Pack("This modpack has no versions to download.".into()))?
@@ -266,7 +266,7 @@ pub async fn install_from_modrinth(
 
     let tmp = paths.cache_dir().join(format!("{}.mrpack", file.hashes.sha1));
     progress.stage("Downloading modpack", 0);
-    modrinth
+    sources.modrinth
         .downloader()
         .fetch(&DownloadJob {
             url: file.url.clone(),
@@ -275,15 +275,15 @@ pub async fn install_from_modrinth(
             size: Some(file.size),
         })
         .await?;
-    let result = install_pack(store, modrinth, &tmp, progress).await;
+    let result = install_pack(store, sources, &tmp, progress).await;
     let _ = tokio::fs::remove_file(&tmp).await;
     let instance = result?;
 
     // The pack's icon is a nice touch, not a requirement.
-    if let Ok(project) = modrinth.project(project_id).await
+    if let Ok(project) = sources.modrinth.project(project_id).await
         && let Some(url) = project.icon_url
         && let Some(ext) = url.rsplit_once('.').map(|(_, e)| e.to_string())
-        && let Ok(bytes) = modrinth.downloader().get_bytes(&url).await
+        && let Ok(bytes) = sources.modrinth.downloader().get_bytes(&url).await
         && let Ok(updated) = store.set_icon(&instance.id, &bytes, &ext).await
     {
         return Ok(updated);
@@ -386,7 +386,7 @@ mod tests {
     async fn installs_overrides_and_cleans_up_on_failure() {
         let tmp = tempfile::tempdir().unwrap();
         let store = InstanceStore::new(&Paths::new(tmp.path().join("data")));
-        let modrinth = Modrinth::new();
+        let sources = Sources::default();
         let index = br#"{"formatVersion":1,"game":"minecraft","versionId":"1","name":"Cozy Pack",
             "files":[],"dependencies":{"minecraft":"1.21.4"}}"#;
 
@@ -400,7 +400,7 @@ mod tests {
                 ("client-overrides/options.txt", b"fov:100"),
             ],
         );
-        let instance = install_pack(&store, &modrinth, &pack, &Progress::none()).await.unwrap();
+        let instance = install_pack(&store, &sources, &pack, &Progress::none()).await.unwrap();
         assert_eq!(instance.name, "Cozy Pack");
         let game_dir = store.game_dir(&instance).unwrap();
         assert_eq!(std::fs::read_to_string(game_dir.join("options.txt")).unwrap(), "fov:100");
@@ -408,14 +408,14 @@ mod tests {
 
         let evil = tmp.path().join("evil.mrpack");
         write_pack(&evil, &[(INDEX, index), ("overrides/../../escaped.txt", b"x")]);
-        assert!(install_pack(&store, &modrinth, &evil, &Progress::none()).await.is_err());
+        assert!(install_pack(&store, &sources, &evil, &Progress::none()).await.is_err());
         assert!(!tmp.path().join("data").join("instances").join("escaped.txt").exists());
         // Only the first pack's instance is left.
         assert_eq!(store.list().await.unwrap().len(), 1);
 
         let not_a_pack = tmp.path().join("x.mrpack");
         std::fs::write(&not_a_pack, b"hello").unwrap();
-        let err = install_pack(&store, &modrinth, &not_a_pack, &Progress::none()).await.unwrap_err();
+        let err = install_pack(&store, &sources, &not_a_pack, &Progress::none()).await.unwrap_err();
         assert!(err.to_string().contains("isn't a Modrinth modpack"));
     }
 }

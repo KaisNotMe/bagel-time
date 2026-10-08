@@ -18,7 +18,8 @@
   let offline = $state(false);
 
   async function popular(projectType: ProjectType, limit: number) {
-    const r = await api.searchModrinth({
+    const r = await api.searchProjects({
+      source: "modrinth",
       text: "",
       projectType,
       gameVersion: null,

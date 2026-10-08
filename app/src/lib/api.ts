@@ -1,5 +1,6 @@
 // Typed wrappers around the Rust commands in src-tauri/src (commands.rs,
-// content.rs, accounts.rs).
+// content.rs, accounts.rs). Browsing calls take a `source`; results look the
+// same for Modrinth and CurseForge.
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 export type Loader = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
@@ -44,6 +45,7 @@ export type Settings = {
   memoryMb: number;
   showSnapshots: boolean;
   javaArgs: string;
+  curseforgeApiKey: string;
 };
 
 export type LogLine = {
@@ -57,6 +59,10 @@ export type LogLine = {
 export type AccountSummary = { uuid: string; username: string };
 export type AccountList = { accounts: AccountSummary[]; active: string | null };
 export type DeviceLogin = { userCode: string; verificationUri: string; expiresIn: number };
+
+export type Source = "modrinth" | "curseforge";
+
+export const SOURCE_NAMES: Record<Source, string> = { modrinth: "Modrinth", curseforge: "CurseForge" };
 
 export type ProjectType = "mod" | "modpack" | "resourcepack" | "shader";
 export type ContentKind = "mod" | "resourcepack" | "shader";
@@ -85,11 +91,14 @@ export type SearchHit = {
   follows: number;
   displayCategories: string[];
   projectType: string;
+  /** CurseForge: the author only allows downloads from the website. */
+  downloadsBlocked: boolean;
 };
 
 export type SearchResults = { hits: SearchHit[]; offset: number; limit: number; totalHits: number };
 
 export type SearchArgs = {
+  source: Source;
   text: string;
   projectType: ProjectType;
   gameVersion: string | null;
@@ -132,6 +141,9 @@ export type ProjectDetails = {
   wikiUrl: string | null;
   discordUrl: string | null;
   gallery: GalleryImage[];
+  /** The project page, when the site gives one (CurseForge). */
+  websiteUrl: string | null;
+  downloadsBlocked: boolean;
 };
 
 export type TeamMember = { username: string; avatarUrl: string | null; role: string };
@@ -150,7 +162,17 @@ export type ProjectVersion = {
   files: { filename: string; size: number; primary: boolean; url: string }[];
 };
 
-export type Category = { icon: string; name: string; projectType: string; header: string };
+export type Category = {
+  /** Inline SVG (Modrinth). */
+  icon: string;
+  /** Filter value: a slug (Modrinth) or an id (CurseForge). */
+  name: string;
+  projectType: string;
+  header: string;
+  /** Display name when `name` is an id. */
+  label: string | null;
+  iconUrl: string | null;
+};
 
 export type InstalledContent = {
   kind: ContentKind;
@@ -159,6 +181,7 @@ export type InstalledContent = {
   enabled: boolean;
   size: number;
   title: string;
+  source: Source;
   projectId: string | null;
   versionId: string | null;
   versionNumber: string | null;
@@ -169,10 +192,16 @@ export type InstalledContent = {
 export type ContentUpdate = {
   kind: ContentKind;
   fileName: string;
+  source: Source;
   projectId: string;
   versionId: string;
   versionNumber: string;
 };
+
+export type ManualDownload = { title: string; fileName: string; url: string; folder: string };
+/** A new instance from a modpack, and files the player has to download by hand. */
+export type PackResult = { instance: Instance; manual: ManualDownload[] };
+export type CurseForgeStatus = { hasKey: boolean; managed: boolean };
 
 export type World = {
   folder: string;
@@ -225,25 +254,26 @@ export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings: Settings) => invoke<Settings>("save_settings", { settings }),
 
-  searchModrinth: (args: SearchArgs) => invoke<SearchResults>("search_modrinth", { args }),
-  getProject: (id: string) => invoke<ProjectDetails>("get_project", { id }),
-  getProjectMembers: (id: string) => invoke<TeamMember[]>("get_project_members", { id }),
-  getProjectVersions: (id: string, loaders: string[] = [], gameVersions: string[] = []) =>
-    invoke<ProjectVersion[]>("get_project_versions", { id, loaders, gameVersions }),
-  getCategories: () => invoke<Category[]>("get_categories"),
+  searchProjects: (args: SearchArgs) => invoke<SearchResults>("search_projects", { args }),
+  curseforgeStatus: () => invoke<CurseForgeStatus>("curseforge_status"),
+  getProject: (source: Source, id: string) => invoke<ProjectDetails>("get_project", { source, id }),
+  getProjectMembers: (source: Source, id: string) => invoke<TeamMember[]>("get_project_members", { source, id }),
+  getProjectVersions: (source: Source, id: string, loaders: string[] = [], gameVersions: string[] = []) =>
+    invoke<ProjectVersion[]>("get_project_versions", { source, id, loaders, gameVersions }),
+  getCategories: (source: Source) => invoke<Category[]>("get_categories", { source }),
 
   listContent: (id: string) => invoke<InstalledContent[]>("list_content", { id }),
   identifyContent: (id: string) => invoke<boolean>("identify_content", { id }),
-  installContent: (id: string, kind: ContentKind, projectId: string, versionId: string | null = null) =>
-    invoke<void>("install_content", { id, kind, projectId, versionId }),
+  installContent: (id: string, kind: ContentKind, source: Source, projectId: string, versionId: string | null = null) =>
+    invoke<void>("install_content", { id, kind, source, projectId, versionId }),
   setContentEnabled: (id: string, kind: ContentKind, fileName: string, enabled: boolean) =>
     invoke<void>("set_content_enabled", { id, kind, fileName, enabled }),
   removeContent: (id: string, kind: ContentKind, fileName: string) =>
     invoke<void>("remove_content", { id, kind, fileName }),
   checkContentUpdates: (id: string) => invoke<ContentUpdate[]>("check_content_updates", { id }),
-  installModpack: (projectId: string, versionId: string | null = null) =>
-    invoke<Instance>("install_modpack", { projectId, versionId }),
-  importMrpack: (path: string) => invoke<Instance>("import_mrpack", { path }),
+  installModpack: (source: Source, projectId: string, versionId: string | null = null) =>
+    invoke<PackResult>("install_modpack", { source, projectId, versionId }),
+  importPack: (path: string) => invoke<PackResult>("import_pack", { path }),
 };
 
 /** A local file as a URL the webview can load. */
@@ -256,4 +286,18 @@ export function errorMessage(e: unknown): string {
   if (typeof e === "string") return e;
   if (e instanceof Error) return e.message;
   return String(e);
+}
+
+const CURSEFORGE_PATHS: Record<ProjectType, string> = {
+  mod: "mc-mods",
+  modpack: "modpacks",
+  resourcepack: "texture-packs",
+  shader: "shaders",
+};
+
+/** A project's page on its site. */
+export function projectPageUrl(source: Source, type: ProjectType, slug: string): string {
+  return source === "curseforge"
+    ? `https://www.curseforge.com/minecraft/${CURSEFORGE_PATHS[type]}/${slug}`
+    : `https://modrinth.com/${type}/${slug}`;
 }

@@ -63,7 +63,7 @@
       onclick={() => {
         onclose();
         packs.pickFile();
-      }}>Import .mrpack…</button
+      }}>Import modpack file…</button
     >
     <button class="btn ghost" type="button" onclick={onclose}>Cancel</button>
     <button class="btn primary" type="submit" form="new-instance" disabled={!valid || creating}>

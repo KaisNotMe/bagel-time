@@ -6,9 +6,12 @@
     errorMessage,
     LOADER_NAMES,
     PROJECT_TYPE_NAMES,
+    projectPageUrl,
+    SOURCE_NAMES,
     type GalleryImage,
     type ProjectDetails,
     type ProjectVersion,
+    type Source,
     type TeamMember,
   } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
@@ -23,6 +26,7 @@
 
   type Tab = "description" | "gallery" | "versions";
 
+  let source = $derived<Source>(page.url.searchParams.get("source") === "curseforge" ? "curseforge" : "modrinth");
   let id = $derived(page.url.searchParams.get("id") ?? "");
   let instanceId = $derived(page.url.searchParams.get("instance"));
   let target = $derived(instanceId ? instances.get(instanceId) : undefined);
@@ -54,6 +58,10 @@
       : versions,
   );
   let installed = $derived(!!project && installedIds.has(project.id));
+  let pageUrl = $derived(
+    project ? (project.websiteUrl ?? projectPageUrl(source, project.projectType, project.slug)) : "",
+  );
+  let blockedUrl = $derived(project?.downloadsBlocked ? pageUrl : null);
   let releaseVersions = $derived(
     project ? project.gameVersions.filter((v) => /^\d+\.\d+(\.\d+)?$/.test(v)).reverse() : [],
   );
@@ -70,6 +78,7 @@
 
   $effect(() => {
     if (!id) return;
+    const s = source;
     project = null;
     members = [];
     versions = [];
@@ -77,12 +86,12 @@
     error = "";
     tab = "description";
     api
-      .getProject(id)
+      .getProject(s, id)
       .then((p) => (project = p))
       .catch((e) => (error = errorMessage(e)));
-    api.getProjectMembers(id).then((m) => (members = m)).catch(() => {});
+    api.getProjectMembers(s, id).then((m) => (members = m)).catch(() => {});
     api
-      .getProjectVersions(id)
+      .getProjectVersions(s, id)
       .then((v) => (versions = v))
       .catch(() => {})
       .finally(() => (versionsLoaded = true));
@@ -92,12 +101,12 @@
   $effect(() => {
     const type = project?.projectType;
     ui.setCrumbs(
-      { label: "Discover", href: "/discover" },
+      { label: "Discover", href: `/discover?source=${source}` },
       ...(type
         ? [
             {
               label: PROJECT_TYPE_NAMES[type].many,
-              href: `/discover?type=${type}${instanceId ? `&instance=${encodeURIComponent(instanceId)}` : ""}`,
+              href: `/discover?source=${source}&type=${type}${instanceId ? `&instance=${encodeURIComponent(instanceId)}` : ""}`,
             },
           ]
         : []),
@@ -159,6 +168,8 @@
         </div>
         <div class="actions">
           <InstallButton
+            {source}
+            {blockedUrl}
             projectId={project.id}
             title={project.title}
             projectType={project.projectType}
@@ -166,11 +177,8 @@
             installed={isContent && installed}
             oninstalled={loadInstalled}
           />
-          <button
-            class="btn"
-            onclick={() => openUrl(`https://modrinth.com/${project!.projectType}/${project!.slug}`)}
-          >
-            <Icon name="external" size={15} /> Modrinth
+          <button class="btn" onclick={() => openUrl(pageUrl)}>
+            <Icon name="external" size={15} /> {SOURCE_NAMES[source]}
           </button>
         </div>
       </header>
@@ -199,7 +207,7 @@
       <div class="columns">
         <div class="main card">
           {#if tab === "description"}
-            <Markdown source={project.body} />
+            <Markdown source={project.body} html={source === "curseforge"} />
           {:else if tab === "gallery"}
             <div class="gallery">
               {#each gallery as img (img.url)}
@@ -237,6 +245,8 @@
                     <small>{date(v.datePublished)}</small>
                   </div>
                   <InstallButton
+                    {source}
+                    blockedUrl={v.files[0] && !v.files[0].url ? `${pageUrl}/files/${v.id}` : null}
                     projectId={project.id}
                     title={`${project.title} ${v.versionNumber}`}
                     projectType={project.projectType}
@@ -299,7 +309,15 @@
             <section class="card">
               <h3>Creators</h3>
               {#each members as m (m.username)}
-                <button class="member" onclick={() => openUrl(`https://modrinth.com/user/${m.username}`)}>
+                <button
+                  class="member"
+                  onclick={() =>
+                    openUrl(
+                      source === "curseforge"
+                        ? `https://www.curseforge.com/members/${m.username}`
+                        : `https://modrinth.com/user/${m.username}`,
+                    )}
+                >
                   {#if m.avatarUrl}
                     <img src={m.avatarUrl} alt="" width="32" height="32" />
                   {:else}

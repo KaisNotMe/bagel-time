@@ -25,7 +25,14 @@ A Minecraft launcher in Rust, in the spirit of the Modrinth App and GDLauncher.
 - Downloads go to `<file>.part` and are renamed after SHA-1 verification; a file
   whose size matches is treated as installed, so re-checking before every launch is fast.
 - Secrets (CurseForge API key) are read from the environment or an untracked
-  local config file, never committed.
+  local config file, never committed. Order: `BAGEL_CURSEFORGE_KEY` at run time,
+  then the key in settings, then `BAGEL_CURSEFORGE_KEY` at build time (so a release
+  build can ship with a key that never sits in the repo).
+- Modrinth and CurseForge results share one set of types (search hits, project
+  details, versions), so Discover and project pages treat both sites the same.
+  Content manifests record each file's `source`.
+- CurseForge files whose authors block third-party downloads are never fetched
+  around that choice; the UI links to the file's page instead.
 - The Azure client ID is not secret and can live in the code. Microsoft login
   needs the app approved for the Minecraft API (aka.ms/mce-reviewappid).
 
@@ -36,5 +43,5 @@ A Minecraft launcher in Rust, in the spirit of the Modrinth App and GDLauncher.
 4. ~~Fabric and Quilt~~ done
 5. ~~Modrinth browsing/installing + `.mrpack` import~~ done
 6. ~~Forge and NeoForge~~ done
-7. CurseForge browsing + pack import
+7. ~~CurseForge browsing/installing + pack import~~ done
 8. Polish: settings, live log viewer, auto-update

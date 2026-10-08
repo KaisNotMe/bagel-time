@@ -7,8 +7,10 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 use bagel_core::account::is_valid_username;
-use bagel_core::modrinth::{Modrinth, ProjectType, SearchQuery};
-use bagel_core::content::{ContentKind, InstanceContent};
+use bagel_core::cfpack;
+use bagel_core::content::{ContentKind, InstanceContent, Source, Sources};
+use bagel_core::curseforge::CurseForge;
+use bagel_core::modrinth::{ProjectType, SearchQuery};
 use bagel_core::{
     Account, Accounts, GameVersion, InstanceStore, LaunchOptions, Launcher, Loader, Paths, Progress, ProgressEvent, mrpack,
 };
@@ -70,9 +72,12 @@ enum Command {
         #[arg(long)]
         game_dir: Option<PathBuf>,
     },
-    /// Search Modrinth for mods or modpacks.
+    /// Search Modrinth (or CurseForge) for mods or modpacks.
     Search {
         text: String,
+        /// Search CurseForge instead of Modrinth.
+        #[arg(long)]
+        curseforge: bool,
         /// Search modpacks instead of mods.
         #[arg(long)]
         modpacks: bool,
@@ -90,20 +95,29 @@ enum Command {
     /// List the mods in an instance.
     Mods {
         instance: String,
-        /// Also check Modrinth for updates.
+        /// Also check for updates.
         #[arg(long)]
         updates: bool,
     },
     /// List the worlds in an instance.
     Worlds { instance: String },
-    /// Install a Modrinth mod (with its dependencies) into an instance.
+    /// Install a mod (with its dependencies) into an instance.
     AddMod {
         instance: String,
-        /// Project slug or id, e.g. sodium.
+        /// Modrinth slug or id (e.g. sodium), or a CurseForge project id.
         project: String,
+        /// The project is on CurseForge.
+        #[arg(long)]
+        curseforge: bool,
     },
-    /// Create an instance from a .mrpack file or a Modrinth modpack slug.
-    Import { source: String },
+    /// Create an instance from a modpack file (.mrpack or CurseForge .zip)
+    /// or a Modrinth slug / CurseForge project id.
+    Import {
+        source: String,
+        /// The project is on CurseForge.
+        #[arg(long)]
+        curseforge: bool,
+    },
     /// Sign in with a Microsoft account.
     Login,
     /// List signed-in accounts.
@@ -125,7 +139,11 @@ async fn main() -> anyhow::Result<()> {
     };
     let accounts = Accounts::new(&paths);
     let store = InstanceStore::new(&paths);
-    let modrinth = Modrinth::new();
+    let settings = bagel_core::Settings::load(&paths).await;
+    let sources = Sources {
+        curseforge: CurseForge::new(&settings.curseforge_api_key),
+        ..Default::default()
+    };
     let launcher = Launcher::new(paths);
 
     match cli.command {
@@ -203,7 +221,7 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             println!("Minecraft exited with {status}");
         }
-        Command::Search { text, modpacks, mc, loader, limit } => {
+        Command::Search { text, curseforge, modpacks, mc, loader, limit } => {
             let query = SearchQuery {
                 text,
                 project_type: Some(if modpacks { ProjectType::Modpack } else { ProjectType::Mod }),
@@ -212,10 +230,14 @@ async fn main() -> anyhow::Result<()> {
                 limit,
                 ..Default::default()
             };
-            let results = modrinth.search(&query).await?;
+            let results = if curseforge {
+                sources.curseforge.search(&query).await?
+            } else {
+                sources.modrinth.search(&query).await?
+            };
             println!("{} results", results.total_hits);
             for hit in results.hits {
-                println!("{:<24} {:>10} downloads  {}", hit.slug, hit.downloads, hit.title);
+                println!("{:<24} {:>10} downloads  {}", if curseforge { &hit.project_id } else { &hit.slug }, hit.downloads, hit.title);
             }
         }
         Command::Instances => {
@@ -226,14 +248,14 @@ async fn main() -> anyhow::Result<()> {
         Command::Mods { instance, updates } => {
             let instance = store.get(&instance).await?;
             let mods = InstanceContent::new(&store, &instance, ContentKind::Mod)?;
-            mods.identify(&modrinth).await?;
+            mods.identify(&sources).await?;
             for m in mods.list().await? {
                 let state = if m.enabled { " " } else { "x" };
                 let version = m.version_number.as_deref().unwrap_or("?");
                 println!("{state} {:<32} {:<20} {}", m.title, version, m.file_name);
             }
             if updates {
-                for u in mods.check_updates(&modrinth).await? {
+                for u in mods.check_updates(&sources).await? {
                     println!("update: {} -> {}", u.file_name, u.version_number);
                 }
             }
@@ -246,27 +268,36 @@ async fn main() -> anyhow::Result<()> {
                 println!("{:<24} {:<10} {:<8} {}", w.name, mode, version, w.folder);
             }
         }
-        Command::AddMod { instance, project } => {
+        Command::AddMod { instance, project, curseforge } => {
             let instance = store.get(&instance).await?;
             let mods = InstanceContent::new(&store, &instance, ContentKind::Mod)?;
-            let plan = mods.plan(&modrinth, &project, None).await?;
+            let source = if curseforge { Source::CurseForge } else { Source::Modrinth };
+            let plan = mods.plan(&sources, source, &project, None).await?;
             for p in &plan {
                 let kind = if p.dependency { "dependency" } else { "mod" };
-                println!("{kind}: {} {}", p.version.name, p.version.version_number);
+                println!("{kind}: {} {}", p.title, p.version_number);
             }
             let (progress, bar) = progress_bar();
-            mods.install(&modrinth, &plan, &progress).await?;
+            mods.install(sources.modrinth.downloader(), &plan, &progress).await?;
             bar.finish_and_clear();
             println!("Installed into {}", mods.dir().display());
         }
-        Command::Import { source } => {
+        Command::Import { source, curseforge } => {
             let (progress, bar) = progress_bar();
             let path = PathBuf::from(&source);
-            let instance = if path.is_file() {
-                mrpack::install_pack(&store, &modrinth, &path, &progress).await?
+            let done = if path.is_file() {
+                cfpack::import_file(&store, &sources, &path, &progress).await?
+            } else if curseforge {
+                cfpack::install_from_curseforge(launcher.paths(), &store, &sources, &source, None, &progress).await?
             } else {
-                mrpack::install_from_modrinth(launcher.paths(), &store, &modrinth, &source, None, &progress).await?
+                let instance =
+                    mrpack::install_from_modrinth(launcher.paths(), &store, &sources, &source, None, &progress).await?;
+                cfpack::PackInstall { instance, manual: Vec::new() }
             };
+            let instance = done.instance;
+            for m in &done.manual {
+                println!("Download by hand into {}: {} ({})", m.folder, m.title, m.url);
+            }
             bar.finish_and_clear();
             println!("Created instance {} ({})", instance.id, describe(&instance.game()));
         }

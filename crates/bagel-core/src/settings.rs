@@ -14,6 +14,8 @@ pub struct Settings {
     pub show_snapshots: bool,
     /// Extra JVM arguments for every instance, space separated.
     pub java_args: String,
+    /// CurseForge API key; the BAGEL_CURSEFORGE_KEY environment variable wins.
+    pub curseforge_api_key: String,
 }
 
 impl Default for Settings {
@@ -23,6 +25,7 @@ impl Default for Settings {
             memory_mb: 4096,
             show_snapshots: false,
             java_args: String::new(),
+            curseforge_api_key: String::new(),
         }
     }
 }
@@ -60,6 +63,7 @@ mod tests {
             memory_mb: 6144,
             show_snapshots: true,
             java_args: String::new(),
+            curseforge_api_key: String::new(),
         };
         s.save(&paths).await.unwrap();
         let loaded = Settings::load(&paths).await;

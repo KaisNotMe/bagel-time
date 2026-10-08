@@ -274,6 +274,7 @@ pub async fn save_settings(state: State<'_>, settings: Settings) -> CmdResult<Se
         return Err("Memory must be between 512 MB and 64 GB.".into());
     }
     settings.save(state.launcher.paths()).await.map_err(err)?;
+    state.sources.curseforge.set_key(&settings.curseforge_api_key);
     Ok(settings)
 }
 

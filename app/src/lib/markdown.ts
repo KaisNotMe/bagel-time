@@ -1,4 +1,4 @@
-// Turning Modrinth's Markdown and SVG into safe HTML.
+// Turning Modrinth's Markdown, CurseForge's HTML and SVG icons into safe HTML.
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 
@@ -13,7 +13,11 @@ DOMPurify.addHook("uponSanitizeElement", (node, data) => {
 });
 
 export function renderMarkdown(source: string): string {
-  const html = marked.parse(source, { async: false, gfm: true });
+  return renderHtml(marked.parse(source, { async: false, gfm: true }));
+}
+
+/** HTML from a project page (CurseForge descriptions), sanitized. */
+export function renderHtml(html: string): string {
   return DOMPurify.sanitize(html, {
     ADD_TAGS: ["iframe"],
     ADD_ATTR: ["allowfullscreen", "frameborder"],
