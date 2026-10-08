@@ -5,10 +5,12 @@
   import Icon from "$lib/components/Icon.svelte";
   import InstanceIcon from "$lib/components/InstanceIcon.svelte";
   import ProjectIcon from "$lib/components/ProjectIcon.svelte";
+  import ServerCard from "$lib/components/ServerCard.svelte";
   import { account } from "$lib/account.svelte";
   import { compactNumber, relativeTime } from "$lib/format";
   import { games } from "$lib/games.svelte";
   import { instances } from "$lib/instances.svelte";
+  import { servers } from "$lib/servers.svelte";
   import { ui } from "$lib/ui.svelte";
 
   ui.setCrumbs({ label: "Home" });
@@ -33,6 +35,7 @@
   }
 
   onMount(async () => {
+    servers.loadRecent();
     try {
       [packs, mods] = await Promise.all([popular("modpack", 6), popular("mod", 8)]);
     } catch {
@@ -41,6 +44,7 @@
   });
 
   let recent = $derived(instances.list.slice(0, 6));
+  let recentServers = $derived(servers.recent.filter((r) => instances.get(r.instanceId)).slice(0, 4));
   let greeting = $derived(account.activeName ? `Welcome back, ${account.activeName}` : "Welcome back");
 </script>
 
@@ -102,6 +106,24 @@
       {/if}
     </section>
 
+    {#if recentServers.length}
+      <section>
+        <div class="section-head">
+          <h2 class="section-title">Servers you played</h2>
+        </div>
+        <div class="servers">
+          {#each recentServers as r (`${r.instanceId}/${r.address}`)}
+            <ServerCard
+              instanceId={r.instanceId}
+              name={r.name}
+              address={r.address}
+              note={`${instances.get(r.instanceId)?.name} · ${relativeTime(r.lastPlayed)}`}
+            />
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     {#if offline}
       <p class="muted">Couldn't reach Modrinth. Popular modpacks and mods show up here when you're online.</p>
     {:else}
@@ -158,6 +180,11 @@
 </div>
 
 <style>
+  .servers {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+    gap: 8px;
+  }
   section {
     display: grid;
     gap: 12px;

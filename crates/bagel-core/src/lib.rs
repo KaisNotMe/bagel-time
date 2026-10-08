@@ -24,6 +24,7 @@ pub mod mrpack;
 pub mod paths;
 pub mod progress;
 pub mod rules;
+pub mod servers;
 pub mod settings;
 
 pub use account::Account;

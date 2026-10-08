@@ -238,7 +238,9 @@ pub async fn delete_instance(state: State<'_>, id: String) -> CmdResult<()> {
     if state.games.is_running(&id) {
         return Err("Close the game before deleting this instance.".into());
     }
-    state.store.delete(&id).await.map_err(err)
+    state.store.delete(&id).await.map_err(err)?;
+    let _ = bagel_core::servers::forget_instance(state.launcher.paths(), &id).await;
+    Ok(())
 }
 
 /// Opens the instance's game folder, or a folder inside it (e.g. `mods`,
@@ -279,10 +281,11 @@ pub async fn save_settings(state: State<'_>, settings: Settings) -> CmdResult<Se
 }
 
 /// Starts installing and launching in the background. Progress, log lines and
-/// the exit arrive as events (see `games.rs`).
+/// the exit arrive as events (see `games.rs`). With `server`, the game joins
+/// that server as soon as it starts.
 #[tauri::command]
-pub async fn launch_instance(app: AppHandle, state: State<'_>, id: String) -> CmdResult<()> {
-    crate::games::launch(app, Arc::clone(&state), id).await
+pub async fn launch_instance(app: AppHandle, state: State<'_>, id: String, server: Option<String>) -> CmdResult<()> {
+    crate::games::launch(app, Arc::clone(&state), id, server).await
 }
 
 #[tauri::command]

@@ -6,7 +6,7 @@ use crate::download::{DownloadJob, Downloader};
 use crate::forge;
 use crate::error::{Error, IoContext, Result, parse_json};
 use crate::java::{LEGACY_COMPONENT, ensure_runtime};
-use crate::launch::{LaunchContext, build_arguments};
+use crate::launch::{LaunchContext, build_arguments, supports_quick_play};
 use crate::libraries::{extract_natives, resolve};
 use crate::loaders::{self, GameVersion, Loader, LoaderVersion, profile_url};
 use crate::meta::{LoaderProfile, VERSION_MANIFEST_URL, VersionJson, VersionManifest};
@@ -21,6 +21,8 @@ pub struct LaunchOptions {
     pub memory_mb: u32,
     /// Extra JVM arguments, e.g. from instance settings.
     pub extra_jvm_args: Vec<String>,
+    /// Join this server (`host` or `host:port`) once the game starts.
+    pub server: Option<String>,
 }
 
 /// Everything needed to start a version, after its files are downloaded.
@@ -238,6 +240,15 @@ impl Launcher {
         tokio::fs::create_dir_all(game_dir).await.at(game_dir)?;
 
         let installed = self.install(game, game_dir, progress).await?;
+        // Old versions don't look up SRV records for --server, so do it here.
+        let server = match &options.server {
+            Some(s) if !supports_quick_play(&installed.version) => Some(match crate::servers::resolve(s).await {
+                Ok((host, port)) if host.contains(':') => format!("[{host}]:{port}"),
+                Ok((host, port)) => format!("{host}:{port}"),
+                Err(_) => s.clone(),
+            }),
+            other => other.clone(),
+        };
         let args = build_arguments(&LaunchContext {
             version: &installed.version,
             account: &options.account,
@@ -251,6 +262,7 @@ impl Launcher {
             log_config: installed.log_config.as_deref(),
             memory_mb: options.memory_mb,
             extra_jvm_args: &options.extra_jvm_args,
+            server: server.as_deref(),
         });
 
         let mut cmd = tokio::process::Command::new(&installed.java);

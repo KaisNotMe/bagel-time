@@ -22,6 +22,8 @@ pub struct LaunchContext<'a> {
     pub memory_mb: u32,
     /// Added after the memory setting, so they can override it.
     pub extra_jvm_args: &'a [String],
+    /// Join this server (`host` or `host:port`) as soon as the game starts.
+    pub server: Option<&'a str>,
 }
 
 /// Every argument after the java executable, with `${...}` placeholders filled in.
@@ -36,7 +38,7 @@ pub fn build_arguments(ctx: &LaunchContext) -> Vec<String> {
     let uuid = ctx.account.uuid.simple().to_string();
     let path = |p: &Path| p.display().to_string();
 
-    let vars: HashMap<&str, String> = HashMap::from([
+    let mut vars: HashMap<&str, String> = HashMap::from([
         ("auth_player_name", ctx.account.username.clone()),
         ("auth_uuid", uuid.clone()),
         ("auth_access_token", ctx.account.access_token.clone()),
@@ -58,6 +60,21 @@ pub fn build_arguments(ctx: &LaunchContext) -> Vec<String> {
         ("launcher_name", "bagel-time".to_string()),
         ("launcher_version", env!("CARGO_PKG_VERSION").to_string()),
     ]);
+
+    // 1.20+ joins through Quick Play; older versions take --server/--port.
+    let quick_play = ctx.server.is_some() && supports_quick_play(ctx.version);
+    let quick_env;
+    let env = if quick_play {
+        let mut e = ctx.env.clone();
+        e.features.insert("is_quick_play_multiplayer".into(), true);
+        quick_env = e;
+        &quick_env
+    } else {
+        ctx.env
+    };
+    if let Some(server) = ctx.server {
+        vars.insert("quickPlayMultiplayer", server.to_string());
+    }
 
     let mut args = vec![format!("-Xmx{}M", ctx.memory_mb)];
     args.extend(ctx.extra_jvm_args.iter().cloned());
@@ -85,18 +102,32 @@ pub fn build_arguments(ctx: &LaunchContext) -> Vec<String> {
         );
     }
     if let Some(a) = &ctx.version.arguments {
-        push_arguments(&mut args, &a.jvm, ctx.env);
+        push_arguments(&mut args, &a.jvm, env);
     }
 
     args.push(ctx.version.main_class.clone());
 
     match (legacy, &ctx.version.arguments) {
         (Some(legacy), _) => args.extend(legacy.split_whitespace().map(String::from)),
-        (None, Some(a)) => push_arguments(&mut args, &a.game, ctx.env),
+        (None, Some(a)) => push_arguments(&mut args, &a.game, env),
         (None, None) => {}
+    }
+    if let (Some(server), false) = (ctx.server, quick_play) {
+        let (host, port) = crate::servers::parse_address(server).unwrap_or((server.to_string(), None));
+        args.extend(["--server".into(), host, "--port".into(), port.unwrap_or(25565).to_string()]);
     }
 
     args.iter().map(|a| substitute(a, &vars)).collect()
+}
+
+/// Whether the version can join a server with `--quickPlayMultiplayer`.
+pub fn supports_quick_play(version: &VersionJson) -> bool {
+    version.arguments.as_ref().is_some_and(|a| {
+        a.game.iter().any(|arg| {
+            matches!(arg, Argument::Conditional { rules, .. }
+                if rules.iter().any(|r| r.features.as_ref().is_some_and(|f| f.contains_key("is_quick_play_multiplayer"))))
+        })
+    })
 }
 
 fn push_arguments(out: &mut Vec<String>, args: &[Argument], env: &Environment) {
@@ -154,6 +185,10 @@ mod tests {
     }
 
     fn run_with(v: &VersionJson, extra: &[String]) -> Vec<String> {
+        run_full(v, extra, None)
+    }
+
+    fn run_full(v: &VersionJson, extra: &[String], server: Option<&str>) -> Vec<String> {
         let env = Environment {
             os_name: "windows".into(),
             arch: "x86_64".into(),
@@ -174,6 +209,7 @@ mod tests {
             log_config: None,
             memory_mb: 2048,
             extra_jvm_args: extra,
+            server,
         })
     }
 
@@ -250,5 +286,23 @@ mod tests {
                 "Steve",
             ]
         );
+    }
+
+    #[test]
+    fn joins_servers_with_quick_play_or_server_flags() {
+        let modern = version(&format!(
+            r#"{{{BASE},"arguments":{{"jvm":[],"game":["--username","${{auth_player_name}}",
+                {{"rules":[{{"action":"allow","features":{{"is_quick_play_multiplayer":true}}}}],
+                  "value":["--quickPlayMultiplayer","${{quickPlayMultiplayer}}"]}}]}}}}"#
+        ));
+        assert!(supports_quick_play(&modern));
+        let args = run_full(&modern, &[], Some("play.example.net"));
+        assert_eq!(args[args.len() - 2..], ["--quickPlayMultiplayer", "play.example.net"]);
+        assert!(!run(&modern).contains(&"--quickPlayMultiplayer".to_string()));
+
+        let old = version(&format!(r#"{{{BASE},"minecraftArguments":"--username ${{auth_player_name}}"}}"#));
+        assert!(!supports_quick_play(&old));
+        let args = run_full(&old, &[], Some("play.example.net:25570"));
+        assert_eq!(args[args.len() - 4..], ["--server", "play.example.net", "--port", "25570"]);
     }
 }

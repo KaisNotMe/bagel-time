@@ -174,6 +174,33 @@ export type Category = {
   iconUrl: string | null;
 };
 
+/** A server from an instance's list (the same list the game shows). */
+export type Server = {
+  name: string;
+  address: string;
+  /** `data:` URL saved by the game, if any. */
+  icon: string | null;
+};
+
+export type ServerStatus = {
+  /** Message of the day with `§` formatting codes. */
+  motd: string;
+  online: number;
+  max: number;
+  sample: string[];
+  version: string;
+  protocol: number;
+  icon: string | null;
+  pingMs: number;
+};
+
+export type RecentServer = {
+  instanceId: string;
+  name: string;
+  address: string;
+  lastPlayed: number;
+};
+
 /** Whether a project fits an instance, and which version would go in. */
 export type Fit = {
   fits: boolean;
@@ -248,7 +275,12 @@ export const api = {
   deleteInstance: (id: string) => invoke<void>("delete_instance", { id }),
   /** `sub` is a folder inside the game folder, e.g. "mods" or "saves/My World". */
   openInstanceFolder: (id: string, sub: string | null = null) => invoke<void>("open_instance_folder", { id, sub }),
-  launchInstance: (id: string) => invoke<void>("launch_instance", { id }),
+  launchInstance: (id: string, server: string | null = null) => invoke<void>("launch_instance", { id, server }),
+  listServers: (id: string) => invoke<Server[]>("list_servers", { id }),
+  addServer: (id: string, name: string, address: string) => invoke<void>("add_server", { id, name, address }),
+  removeServer: (id: string, address: string) => invoke<void>("remove_server", { id, address }),
+  pingServer: (address: string) => invoke<ServerStatus>("ping_server", { address }),
+  recentServers: () => invoke<RecentServer[]>("recent_servers"),
   stopInstance: (id: string) => invoke<boolean>("stop_instance", { id }),
 
   listWorlds: (id: string) => invoke<World[]>("list_worlds", { id }),

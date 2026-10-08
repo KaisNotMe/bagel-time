@@ -8,16 +8,18 @@
   import ContentTab from "$lib/components/instance/ContentTab.svelte";
   import LogsTab from "$lib/components/instance/LogsTab.svelte";
   import ScreenshotsTab from "$lib/components/instance/ScreenshotsTab.svelte";
+  import ServersTab from "$lib/components/instance/ServersTab.svelte";
   import WorldsTab from "$lib/components/instance/WorldsTab.svelte";
   import { relativeTime } from "$lib/format";
   import { games } from "$lib/games.svelte";
   import { instances } from "$lib/instances.svelte";
   import { ui } from "$lib/ui.svelte";
 
-  type Tab = "content" | "worlds" | "logs" | "screenshots";
+  type Tab = "content" | "worlds" | "servers" | "logs" | "screenshots";
   const tabs: { id: Tab; label: string; icon: IconName }[] = [
     { id: "content", label: "Content", icon: "puzzle" },
     { id: "worlds", label: "Worlds", icon: "globe" },
+    { id: "servers", label: "Servers", icon: "server" },
     { id: "logs", label: "Logs", icon: "terminal" },
     { id: "screenshots", label: "Screenshots", icon: "camera" },
   ];
@@ -112,6 +114,8 @@
           <ContentTab {instance} {running} />
         {:else if tab === "worlds"}
           <WorldsTab {instance} />
+        {:else if tab === "servers"}
+          <ServersTab {instance} />
         {:else if tab === "logs"}
           <LogsTab {instance} />
         {:else}

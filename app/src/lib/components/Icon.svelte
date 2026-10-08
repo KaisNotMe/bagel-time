@@ -32,6 +32,8 @@
     copy: "M9 9h11v11H9zM5 15H4V4h11v1",
     check: "M5 12.5l4.5 4.5L19 7.5",
     terminal: "M4 5h16v14H4zM8 10l3 2-3 2M13 15h3",
+    server: "M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01",
+    signal: "M5 20v-3M10 20v-7M15 20V9M20 20V4",
     users: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7M18 14a6 6 0 0 1 4 6v1",
     clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
     edit: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",

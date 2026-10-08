@@ -13,6 +13,7 @@
   import { games } from "$lib/games.svelte";
   import { instances } from "$lib/instances.svelte";
   import { packs } from "$lib/packs.svelte";
+  import { servers } from "$lib/servers.svelte";
   import { ui } from "$lib/ui.svelte";
 
   let { children }: { children: Snippet } = $props();
@@ -22,6 +23,7 @@
   onMount(() => {
     games.listen();
     packs.listen();
+    servers.listen();
     account.refresh();
     instances.refresh();
     api.getSettings().then((s) => (showSnapshots = s.showSnapshots));

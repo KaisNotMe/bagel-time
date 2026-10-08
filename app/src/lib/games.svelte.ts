@@ -36,12 +36,13 @@ class Games {
     }
   }
 
-  async launch(id: string) {
+  /** Starts the game; with `server` it joins that server right away. */
+  async launch(id: string, server: string | null = null) {
     delete this.errors[id];
     this.logs = { ...this.logs, [id]: [] };
     this.status[id] = { phase: "preparing", stage: "Starting", done: 0, total: 0 };
     try {
-      await api.launchInstance(id);
+      await api.launchInstance(id, server);
     } catch (e) {
       delete this.status[id];
       this.errors[id] = errorMessage(e);

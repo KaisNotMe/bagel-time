@@ -6,13 +6,16 @@
 //! - `game-started` once Java is running
 //! - `game-log` for each log line
 //! - `game-exited` when the game closes or the launch failed
+//! - `servers-changed` after the game joins a server (recent servers)
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use bagel_core::logs::{LogLine, LogParser};
-use bagel_core::{Account, Instance, LaunchOptions, Progress, ProgressEvent, Settings};
+use bagel_core::servers;
+use bagel_core::{Account, Instance, LaunchOptions, Paths, Progress, ProgressEvent, Settings};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
@@ -92,13 +95,13 @@ struct ExitPayload {
     error: Option<String>,
 }
 
-pub async fn launch(app: AppHandle, state: Arc<AppState>, id: String) -> Result<(), String> {
+pub async fn launch(app: AppHandle, state: Arc<AppState>, id: String, server: Option<String>) -> Result<(), String> {
     let instance = state.store.get(&id).await.map_err(|e| e.to_string())?;
     if !state.games.claim(&id) {
         return Err("This instance is already running.".into());
     }
     tauri::async_runtime::spawn(async move {
-        let result = run_game(&app, &state, &instance).await;
+        let result = run_game(&app, &state, &instance, server).await;
         state.games.release(&id);
         let (code, error) = match result {
             Ok(code) => (code, None),
@@ -116,7 +119,12 @@ pub async fn launch(app: AppHandle, state: Arc<AppState>, id: String) -> Result<
     Ok(())
 }
 
-async fn run_game(app: &AppHandle, state: &AppState, instance: &Instance) -> Result<Option<i32>, String> {
+async fn run_game(
+    app: &AppHandle,
+    state: &AppState,
+    instance: &Instance,
+    server: Option<String>,
+) -> Result<Option<i32>, String> {
     let id = instance.id.clone();
     let settings = Settings::load(state.launcher.paths()).await;
     let account = match state.accounts.active().await.map_err(|e| e.to_string())? {
@@ -130,9 +138,10 @@ async fn run_game(app: &AppHandle, state: &AppState, instance: &Instance) -> Res
         }
         None => Account::offline(&settings.offline_username),
     };
+    let game_dir = state.store.game_dir(instance).map_err(|e| e.to_string())?;
     let options = LaunchOptions {
         account,
-        game_dir: state.store.game_dir(instance).map_err(|e| e.to_string())?,
+        game_dir: game_dir.clone(),
         memory_mb: instance.memory_mb.unwrap_or(settings.memory_mb),
         // Global arguments first so the instance's own can override them.
         extra_jvm_args: settings
@@ -141,6 +150,7 @@ async fn run_game(app: &AppHandle, state: &AppState, instance: &Instance) -> Res
             .chain(instance.java_args.as_deref().unwrap_or_default().split_whitespace())
             .map(String::from)
             .collect(),
+        server: server.clone(),
     };
 
     let progress = progress_reporter(app.clone(), "launch-progress", id.clone());
@@ -160,9 +170,19 @@ async fn run_game(app: &AppHandle, state: &AppState, instance: &Instance) -> Res
     state.games.set_stopper(&id, stop_tx);
     let _ = app.emit("game-started", InstancePayload { instance_id: id.clone() });
 
+    let joins = Joins {
+        app: app.clone(),
+        paths: state.launcher.paths().clone(),
+        instance_id: id.clone(),
+        game_dir,
+    };
+    if let Some(server) = server {
+        joins.record(server);
+    }
+
     // The pipes must be drained continuously or the game blocks on writing.
-    let stdout = tokio::spawn(pipe_logs(app.clone(), id.clone(), child.stdout.take()));
-    let stderr = tokio::spawn(pipe_logs(app.clone(), id.clone(), child.stderr.take()));
+    let stdout = tokio::spawn(pipe_logs(app.clone(), id.clone(), joins.clone(), child.stdout.take()));
+    let stderr = tokio::spawn(pipe_logs(app.clone(), id.clone(), joins, child.stderr.take()));
 
     let status = tokio::select! {
         status = child.wait() => status,
@@ -177,7 +197,30 @@ async fn run_game(app: &AppHandle, state: &AppState, instance: &Instance) -> Res
     Ok(status.code())
 }
 
-async fn pipe_logs<R: AsyncRead + Unpin>(app: AppHandle, id: String, reader: Option<R>) {
+/// Remembers servers the game joins, for "recent servers".
+#[derive(Clone)]
+struct Joins {
+    app: AppHandle,
+    paths: Paths,
+    instance_id: String,
+    game_dir: PathBuf,
+}
+
+impl Joins {
+    fn record(&self, address: String) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            if servers::record_join(&this.paths, &this.instance_id, &this.game_dir, &address)
+                .await
+                .is_ok()
+            {
+                let _ = this.app.emit("servers-changed", ());
+            }
+        });
+    }
+}
+
+async fn pipe_logs<R: AsyncRead + Unpin>(app: AppHandle, id: String, joins: Joins, reader: Option<R>) {
     let Some(reader) = reader else { return };
     let mut reader = BufReader::new(reader);
     let mut parser = LogParser::new();
@@ -190,6 +233,9 @@ async fn pipe_logs<R: AsyncRead + Unpin>(app: AppHandle, id: String, reader: Opt
                 // Lossy so one odd byte doesn't stop the log.
                 let text = String::from_utf8_lossy(&buf);
                 if let Some(line) = parser.feed(text.trim_end_matches(['\r', '\n'])) {
+                    if let Some(address) = servers::joined_from_log(&line.message) {
+                        joins.record(address);
+                    }
                     let _ = app.emit(
                         "game-log",
                         LogPayload {

@@ -2,6 +2,7 @@ mod accounts;
 mod commands;
 mod games;
 mod content;
+mod servers;
 
 use std::sync::{Arc, Mutex};
 
@@ -87,6 +88,11 @@ pub fn run() {
             content::identify_content,
             content::install_content,
             content::check_content_fit,
+            servers::list_servers,
+            servers::add_server,
+            servers::remove_server,
+            servers::ping_server,
+            servers::recent_servers,
             content::set_content_enabled,
             content::remove_content,
             content::check_content_updates,

@@ -71,6 +71,9 @@ enum Command {
         /// Game folder (saves, options, mods). Defaults to cli-games/<version>.
         #[arg(long)]
         game_dir: Option<PathBuf>,
+        /// Join this server (host or host:port) once the game starts.
+        #[arg(long)]
+        server: Option<String>,
     },
     /// Search Modrinth (or CurseForge) for mods or modpacks.
     Search {
@@ -185,6 +188,7 @@ async fn main() -> anyhow::Result<()> {
             offline,
             memory,
             game_dir,
+            server,
         } => {
             let account = match (offline, accounts.active().await?) {
                 (Some(name), _) => {
@@ -207,6 +211,7 @@ async fn main() -> anyhow::Result<()> {
                 game_dir: game_dir.unwrap_or_else(|| cli_game_dir(&launcher, &game)),
                 memory_mb: memory,
                 extra_jvm_args: Vec::new(),
+                server,
             };
             let mut cmd = launcher.prepare_launch(&game, &options, &progress).await?;
             bar.finish_and_clear();

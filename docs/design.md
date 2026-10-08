@@ -48,3 +48,4 @@ A Minecraft launcher in Rust, in the spirit of the Modrinth App and GDLauncher.
    - ~~Install only versions that fit the instance; grey out instances and versions that won't work~~ done
    - ~~"New instance" from the install picker only offers loaders and Minecraft versions the project supports, then installs it~~ done
    - ~~A CurseForge key pasted in Settings wins over the environment~~ done
+   - ~~Servers: per-instance list (shared with the game's servers.dat), live status ping, one-click Join (Quick Play, or --server on old versions), recently played servers on Home~~ done
