@@ -198,6 +198,7 @@ impl Playit {
         let name: String = name.chars().filter(|c| c.is_ascii() && !c.is_ascii_control()).take(40).collect();
         let name = format!("Bagel Time: {}", name.trim());
         let mut created = false;
+        let mut waiting_for_agent = false;
         for _ in 0..30 {
             let data: RunData = self.call("/agents/rundata", &serde_json::json!({}), Some(&secret)).await?;
             let found = data.tunnels.iter().find(|t| {
@@ -232,14 +233,23 @@ impl Playit {
                     "firewall_id": null,
                     "proxy_protocol": null
                 });
-                let _: serde_json::Value = self.call("/tunnels/create", &body, Some(&secret)).await?;
-                created = true;
+                match self.call::<_, serde_json::Value>("/tunnels/create", &body, Some(&secret)).await {
+                    Ok(_) => created = true,
+                    // The agent has just started and hasn't told playit its
+                    // version yet; try again on the next round.
+                    Err(Error::Invalid(why)) if why.contains("AgentVersionTooOld") || why.contains("AgentNotFound") => {
+                        waiting_for_agent = true
+                    }
+                    Err(e) => return Err(e),
+                }
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
-        Err(Error::Invalid(
-            "playit.gg hasn't finished setting up the tunnel yet. Try starting the server again in a minute.".into(),
-        ))
+        Err(Error::Invalid(if waiting_for_agent {
+            "playit.gg hasn't seen the tunnel program come online. Check your internet connection or firewall, then start the server again.".into()
+        } else {
+            "playit.gg hasn't finished setting up the tunnel yet. Try starting the server again in a minute.".into()
+        }))
     }
 
     fn agent_path(&self) -> PathBuf {

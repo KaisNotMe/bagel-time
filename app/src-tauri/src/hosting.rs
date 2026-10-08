@@ -497,8 +497,10 @@ async fn run_server(app: &AppHandle, state: &Arc<AppState>, server: HostedServer
 
 /// Makes sure the tunnel exists and the playit agent is running.
 async fn start_tunnel(state: &Arc<AppState>, server: &HostedServer) -> Result<(String, AgentUse), String> {
-    let tunnel = state.playit.ensure_tunnel(&server.name, server.port).await.map_err(err)?;
+    // The agent goes first: playit only makes tunnels for agents it has
+    // heard from.
     let guard = agent_acquire(state).await?;
+    let tunnel = state.playit.ensure_tunnel(&server.name, server.port).await.map_err(err)?;
     Ok((tunnel.address, guard))
 }
 
