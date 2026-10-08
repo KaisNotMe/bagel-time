@@ -110,6 +110,9 @@ pub struct Project {
     #[serde(default)]
     pub icon_url: Option<String>,
     pub project_type: String,
+    /// required, optional, unsupported or unknown.
+    #[serde(default)]
+    pub server_side: Option<String>,
 }
 
 /// Everything a project page shows.

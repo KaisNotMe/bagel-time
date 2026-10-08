@@ -8,12 +8,14 @@
   import InstanceIcon from "$lib/components/InstanceIcon.svelte";
   import ManualDownloads from "$lib/components/ManualDownloads.svelte";
   import NewInstanceDialog from "$lib/components/NewInstanceDialog.svelte";
+  import HostServerDialog from "$lib/components/HostServerDialog.svelte";
   import { api } from "$lib/api";
   import { account } from "$lib/account.svelte";
   import { games } from "$lib/games.svelte";
   import { instances } from "$lib/instances.svelte";
   import { packs } from "$lib/packs.svelte";
   import { servers } from "$lib/servers.svelte";
+  import { hosting } from "$lib/hosting.svelte";
   import { ui } from "$lib/ui.svelte";
 
   let { children }: { children: Snippet } = $props();
@@ -24,6 +26,8 @@
     games.listen();
     packs.listen();
     servers.listen();
+    hosting.listen();
+    hosting.refresh();
     account.refresh();
     instances.refresh();
     api.getSettings().then((s) => (showSnapshots = s.showSnapshots));
@@ -175,6 +179,7 @@
 />
 
 <ManualDownloads />
+<HostServerDialog {showSnapshots} />
 
 {#if packs.dragging}
   <div class="drop" aria-hidden="true">

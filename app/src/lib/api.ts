@@ -174,6 +174,56 @@ export type Category = {
   iconUrl: string | null;
 };
 
+export type HostPhase = "stopped" | "starting" | "running" | "stopping";
+
+/** Live state of a hosted server. */
+export type HostStatus = {
+  phase: HostPhase;
+  /** What's happening while starting, e.g. "Installing NeoForge". */
+  stage: string;
+  players: string[];
+  /** The playit.gg address friends use, once the tunnel is up. */
+  publicAddress: string | null;
+  tunnelError: string | null;
+  /** Why it stopped, if it crashed or failed to start. */
+  error: string | null;
+};
+
+/** A server the player hosts on this computer. */
+export type HostedServer = {
+  id: string;
+  name: string;
+  gameVersion: string;
+  loader: Loader;
+  loaderVersion: string | null;
+  memoryMb: number;
+  port: number;
+  onlineMode: boolean;
+  whitelist: boolean;
+  tunnel: boolean;
+  publicAddress: string | null;
+  fromInstance: string | null;
+  created: number;
+  lastStarted: number | null;
+  status: HostStatus;
+};
+
+export type CreateServerArgs = {
+  name: string;
+  gameVersion: string;
+  loader: Loader;
+  loaderVersion: string | null;
+  onlineMode: boolean;
+  tunnel: boolean;
+  acceptEula: boolean;
+  fromInstance: string | null;
+};
+
+export type ServerPatch = { name: string; memoryMb: number; onlineMode: boolean; whitelist: boolean; tunnel: boolean };
+
+export type PlayitClaim = { code: string; url: string };
+export type ClaimState = "waiting" | "connected" | "rejected";
+
 /** A server from an instance's list (the same list the game shows). */
 export type Server = {
   name: string;
@@ -281,6 +331,21 @@ export const api = {
   removeServer: (id: string, address: string) => invoke<void>("remove_server", { id, address }),
   pingServer: (address: string) => invoke<ServerStatus>("ping_server", { address }),
   recentServers: () => invoke<RecentServer[]>("recent_servers"),
+  listHostedServers: () => invoke<HostedServer[]>("list_hosted_servers"),
+  getHostedServer: (id: string) => invoke<HostedServer>("get_hosted_server", { id }),
+  createHostedServer: (args: CreateServerArgs) =>
+    invoke<{ server: Omit<HostedServer, "status">; skipped: string[] }>("create_hosted_server", { args }),
+  updateHostedServer: (id: string, patch: ServerPatch) => invoke<HostedServer>("update_hosted_server", { id, patch }),
+  deleteHostedServer: (id: string) => invoke<void>("delete_hosted_server", { id }),
+  openHostedFolder: (id: string) => invoke<void>("open_hosted_folder", { id }),
+  serverConsole: (id: string) => invoke<LogLine[]>("server_console", { id }),
+  sendServerCommand: (id: string, command: string) => invoke<void>("send_server_command", { id, command }),
+  startHostedServer: (id: string) => invoke<void>("start_hosted_server", { id }),
+  stopHostedServer: (id: string) => invoke<void>("stop_hosted_server", { id }),
+  playitStatus: () => invoke<{ connected: boolean }>("playit_status"),
+  playitStartClaim: () => invoke<PlayitClaim>("playit_start_claim"),
+  playitPollClaim: (code: string) => invoke<ClaimState>("playit_poll_claim", { code }),
+  playitDisconnect: () => invoke<void>("playit_disconnect"),
   stopInstance: (id: string) => invoke<boolean>("stop_instance", { id }),
 
   listWorlds: (id: string) => invoke<World[]>("list_worlds", { id }),

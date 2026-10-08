@@ -5,12 +5,14 @@
   import Icon from "$lib/components/Icon.svelte";
   import InstanceIcon from "$lib/components/InstanceIcon.svelte";
   import ProjectIcon from "$lib/components/ProjectIcon.svelte";
+  import HostedCard from "$lib/components/HostedCard.svelte";
   import ServerCard from "$lib/components/ServerCard.svelte";
   import { account } from "$lib/account.svelte";
   import { compactNumber, relativeTime } from "$lib/format";
   import { games } from "$lib/games.svelte";
   import { instances } from "$lib/instances.svelte";
   import { servers } from "$lib/servers.svelte";
+  import { hosting } from "$lib/hosting.svelte";
   import { ui } from "$lib/ui.svelte";
 
   ui.setCrumbs({ label: "Home" });
@@ -106,23 +108,48 @@
       {/if}
     </section>
 
-    {#if recentServers.length}
-      <section>
-        <div class="section-head">
-          <h2 class="section-title">Servers you played</h2>
+    <section>
+      <div class="section-head">
+        <h2 class="section-title">Servers</h2>
+        <button class="btn sm" onclick={() => hosting.open()}><Icon name="plus" size={14} /> Host a server</button>
+      </div>
+      {#if hosting.list.length === 0 && recentServers.length === 0}
+        <div class="welcome card">
+          <span class="host-icon"><Icon name="users" size={28} /></span>
+          <div>
+            <h3>Play with friends</h3>
+            <p class="muted">
+              Host a server from one of your instances. Bagel Time sets it up, starts it and gives you an address to
+              send your friends. No port forwarding needed.
+            </p>
+          </div>
+          <div class="welcome-actions">
+            <button class="btn primary" onclick={() => hosting.open()}><Icon name="server" size={16} /> Host a server</button>
+          </div>
         </div>
-        <div class="servers">
-          {#each recentServers as r (`${r.instanceId}/${r.address}`)}
-            <ServerCard
-              instanceId={r.instanceId}
-              name={r.name}
-              address={r.address}
-              note={`${instances.get(r.instanceId)?.name} · ${relativeTime(r.lastPlayed)}`}
-            />
-          {/each}
-        </div>
-      </section>
-    {/if}
+      {:else}
+        {#if hosting.list.length}
+          <div class="servers">
+            {#each hosting.list as s (s.id)}
+              <HostedCard server={s} />
+            {/each}
+          </div>
+        {/if}
+        {#if recentServers.length}
+          <h3 class="sub">Played recently</h3>
+          <div class="servers">
+            {#each recentServers as r (`${r.instanceId}/${r.address}`)}
+              <ServerCard
+                instanceId={r.instanceId}
+                name={r.name}
+                address={r.address}
+                note={`${instances.get(r.instanceId)?.name} · ${relativeTime(r.lastPlayed)}`}
+              />
+            {/each}
+          </div>
+        {/if}
+      {/if}
+    </section>
 
     {#if offline}
       <p class="muted">Couldn't reach Modrinth. Popular modpacks and mods show up here when you're online.</p>
@@ -180,6 +207,20 @@
 </div>
 
 <style>
+  .sub {
+    margin: 14px 0 8px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .host-icon {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
   .servers {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));

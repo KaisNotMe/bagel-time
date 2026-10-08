@@ -534,7 +534,7 @@ pub async fn forget_instance(paths: &Paths, instance_id: &str) -> Result<()> {
 
 /// The server address in a game log line like "Connecting to mc.example.net, 25565".
 pub fn joined_from_log(message: &str) -> Option<String> {
-    let rest = message.strip_prefix("Connecting to ")?;
+    let rest = crate::logs::message_text(message).strip_prefix("Connecting to ")?;
     let (host, port) = rest.rsplit_once(", ")?;
     let port: u16 = port.trim().parse().ok()?;
     let host = host.trim();
@@ -566,6 +566,10 @@ mod tests {
         assert_eq!(joined_from_log("Connecting to mc.hypixel.net, 25565").as_deref(), Some("mc.hypixel.net:25565"));
         assert_eq!(joined_from_log("Connecting to ::1, 25565").as_deref(), Some("[::1]:25565"));
         assert_eq!(joined_from_log("Connecting to the world"), None);
+        assert_eq!(
+            joined_from_log("[12:00:01] [Render thread/INFO]: Connecting to a.net, 25570").as_deref(),
+            Some("a.net:25570")
+        );
     }
 
     #[test]

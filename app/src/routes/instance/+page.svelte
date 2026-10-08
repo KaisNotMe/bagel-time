@@ -13,6 +13,7 @@
   import { relativeTime } from "$lib/format";
   import { games } from "$lib/games.svelte";
   import { instances } from "$lib/instances.svelte";
+  import { hosting } from "$lib/hosting.svelte";
   import { ui } from "$lib/ui.svelte";
 
   type Tab = "content" | "worlds" | "servers" | "logs" | "screenshots";
@@ -91,6 +92,9 @@
               {#if status}{status.stage || "Starting"}{percent !== null ? ` ${percent}%` : "…"}{:else}Play{/if}
             </button>
           {/if}
+          <button class="btn lg square" title="Host this instance as a server for friends" aria-label="Host as a server" onclick={() => hosting.open(instance!.id)}>
+            <Icon name="server" size={19} />
+          </button>
           <button class="btn lg square" title="Settings" aria-label="Instance settings" onclick={() => (settingsOpen = true)}>
             <Icon name="settings" size={19} />
           </button>

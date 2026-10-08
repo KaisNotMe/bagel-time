@@ -274,4 +274,241 @@ impl Launcher {
         }
         Ok(cmd)
     }
+
+    /// Downloads (once) what a hosted server needs to run in `dir`, then
+    /// returns a ready-to-spawn command. Java and the server files are kept
+    /// between starts; changing the version reinstalls.
+    pub async fn prepare_server(
+        &self,
+        game: &GameVersion,
+        dir: &Path,
+        memory_mb: u32,
+        progress: &Progress,
+    ) -> Result<tokio::process::Command> {
+        tokio::fs::create_dir_all(dir).await.at(dir)?;
+        // Installers run inside the server folder, so relative paths would break.
+        let dir = &std::path::absolute(dir).at(dir)?;
+        let vanilla = self.version_json(&game.minecraft).await?;
+        let component = vanilla
+            .java_version
+            .as_ref()
+            .map_or(LEGACY_COMPONENT, |j| j.component.as_str());
+        let java = ensure_runtime(&self.dl, &self.paths, &self.env, component, progress).await?;
+
+        let marker = dir.join(SERVER_MARKER);
+        let wanted = format!(
+            "{} {} {}",
+            game.minecraft,
+            game.loader.slug(),
+            game.loader_version.as_deref().unwrap_or("")
+        );
+        let previous: Option<ServerInstall> = tokio::fs::read(&marker)
+            .await
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
+        let args = match previous {
+            Some(p) if p.game == wanted => p.args,
+            _ => {
+                let args = self.install_server(game, &vanilla, &java, dir, progress).await?;
+                let record = ServerInstall { game: wanted, args: args.clone() };
+                let json = serde_json::to_vec_pretty(&record).expect("record serializes");
+                tokio::fs::write(&marker, json).await.at(&marker)?;
+                args
+            }
+        };
+
+        let mut cmd = tokio::process::Command::new(&java);
+        cmd.arg(format!("-Xmx{memory_mb}M")).args(&args).current_dir(dir);
+        #[cfg(windows)]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        Ok(cmd)
+    }
+
+    /// Puts the server files in place; returns the arguments after `-Xmx`.
+    async fn install_server(
+        &self,
+        game: &GameVersion,
+        vanilla: &VersionJson,
+        java: &Path,
+        dir: &Path,
+        progress: &Progress,
+    ) -> Result<Vec<String>> {
+        let args = |jar: &str| vec!["-jar".to_string(), jar.to_string(), "nogui".to_string()];
+        let loader_version = || {
+            game.loader_version
+                .clone()
+                .ok_or_else(|| Error::MissingLoaderVersion(game.loader.to_string()))
+        };
+        let vanilla_jar = || async {
+            let download = vanilla.downloads.get("server").ok_or_else(|| {
+                Error::Invalid(format!("Mojang doesn't publish a server for Minecraft {}.", game.minecraft))
+            })?;
+            progress.stage("Downloading the server", 1);
+            self.dl
+                .fetch(&DownloadJob {
+                    url: download.url.clone(),
+                    path: dir.join("server.jar"),
+                    sha1: download.sha1.clone(),
+                    size: download.size,
+                })
+                .await?;
+            progress.advance(1);
+            Ok::<_, Error>(())
+        };
+
+        match game.loader {
+            Loader::Vanilla => {
+                vanilla_jar().await?;
+                Ok(args("server.jar"))
+            }
+            Loader::Fabric => {
+                vanilla_jar().await?;
+                #[derive(serde::Deserialize)]
+                struct Installer {
+                    version: String,
+                    #[serde(default)]
+                    stable: bool,
+                }
+                let installers: Vec<Installer> =
+                    self.dl.get_json("https://meta.fabricmc.net/v2/versions/installer").await?;
+                let installer = installers
+                    .iter()
+                    .find(|i| i.stable)
+                    .or(installers.first())
+                    .ok_or_else(|| Error::Installer("Fabric has no server installer right now.".into()))?;
+                let url = format!(
+                    "https://meta.fabricmc.net/v2/versions/loader/{}/{}/{}/server/jar",
+                    game.minecraft,
+                    loader_version()?,
+                    installer.version
+                );
+                let jar = "fabric-server-launch.jar";
+                self.dl
+                    .fetch(&DownloadJob { url, path: dir.join(jar), sha1: None, size: None })
+                    .await?;
+                Ok(args(jar))
+            }
+            Loader::Quilt => {
+                vanilla_jar().await?;
+                #[derive(serde::Deserialize)]
+                struct Installer {
+                    url: String,
+                    version: String,
+                }
+                let installers: Vec<Installer> =
+                    self.dl.get_json("https://meta.quiltmc.org/v3/versions/installer").await?;
+                let installer = installers
+                    .first()
+                    .ok_or_else(|| Error::Installer("Quilt has no server installer right now.".into()))?;
+                let path = self.paths.cache_dir().join(format!("quilt-installer-{}.jar", installer.version));
+        let path = std::path::absolute(&path).at(&path)?;
+                self.dl
+                    .fetch(&DownloadJob { url: installer.url.clone(), path: path.clone(), sha1: None, size: None })
+                    .await?;
+                progress.stage("Installing Quilt", 1);
+                run_installer(
+                    java,
+                    dir,
+                    &[
+                        "-jar".into(),
+                        path.display().to_string(),
+                        "install".into(),
+                        "server".into(),
+                        game.minecraft.clone(),
+                        loader_version()?,
+                        format!("--install-dir={}", dir.display()),
+                    ],
+                    "Quilt",
+                )
+                .await?;
+                progress.advance(1);
+                Ok(args("quilt-server-launch.jar"))
+            }
+            Loader::Forge | Loader::NeoForge => {
+                let artifact = forge::artifact(game.loader, &game.minecraft, &loader_version()?);
+                let url = artifact.installer_url();
+                let file = url.rsplit('/').next().unwrap_or("installer.jar").to_string();
+                let path = self.paths.cache_dir().join("installers").join(file);
+                let path = std::path::absolute(&path).at(&path)?;
+                self.dl
+                    .fetch(&DownloadJob { url, path: path.clone(), sha1: None, size: None })
+                    .await?;
+                progress.stage(&format!("Installing {} (this can take a few minutes)", game.loader), 1);
+                run_installer(
+                    java,
+                    dir,
+                    &["-jar".into(), path.display().to_string(), "--installServer".into(), dir.display().to_string()],
+                    &game.loader.to_string(),
+                )
+                .await?;
+                progress.advance(1);
+                forge_server_args(dir, artifact.path, &self.env)
+                    .await?
+                    .ok_or_else(|| Error::Installer(format!("The {} installer didn't leave a server to run.", game.loader)))
+            }
+        }
+    }
+}
+
+const SERVER_MARKER: &str = ".bagel-server.json";
+
+/// Remembered after installing a server, so later starts skip it.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ServerInstall {
+    /// "<minecraft> <loader> <loader version>".
+    game: String,
+    args: Vec<String>,
+}
+
+async fn run_installer(java: &Path, dir: &Path, args: &[String], what: &str) -> Result<()> {
+    let mut cmd = tokio::process::Command::new(java);
+    cmd.args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| Error::Installer(format!("Couldn't start Java for the {what} installer: {e}")))?;
+    if !output.status.success() {
+        let text = String::from_utf8_lossy(&output.stderr).into_owned() + &String::from_utf8_lossy(&output.stdout);
+        let tail: Vec<&str> = text.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect();
+        return Err(Error::Installer(format!("The {what} server installer failed:\n{}", tail.join("\n"))));
+    }
+    Ok(())
+}
+
+/// How to start a Forge or NeoForge server the installer just set up: modern
+/// ones ship an argument file (`@libraries/.../win_args.txt`), old ones a jar.
+async fn forge_server_args(dir: &Path, maven_path: &str, env: &Environment) -> Result<Option<Vec<String>>> {
+    let file = if env.os_name == "windows" { "win_args.txt" } else { "unix_args.txt" };
+    let base = dir.join("libraries").join(maven_path);
+    if let Ok(mut versions) = tokio::fs::read_dir(&base).await {
+        while let Some(entry) = versions.next_entry().await.at(&base)? {
+            if entry.path().join(file).is_file() {
+                let rel = format!("libraries/{maven_path}/{}/{file}", entry.file_name().to_string_lossy());
+                return Ok(Some(vec![format!("@{rel}"), "nogui".into()]));
+            }
+        }
+    }
+    let mut entries = tokio::fs::read_dir(dir).await.at(dir)?;
+    while let Some(entry) = entries.next_entry().await.at(dir)? {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".jar")
+            && !name.contains("installer")
+            && (name.starts_with("forge-") || name.starts_with("neoforge-") || name.contains("universal"))
+        {
+            return Ok(Some(vec!["-jar".into(), name, "nogui".into()]));
+        }
+    }
+    Ok(None)
 }

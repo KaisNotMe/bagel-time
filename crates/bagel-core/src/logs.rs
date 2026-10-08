@@ -148,3 +148,15 @@ mod tests {
         assert_eq!(p.feed("   "), None);
     }
 }
+
+/// The message part of a plain log line: "[10:54:46] [Server thread/INFO]: Hi"
+/// gives "Hi". Other text comes back as it is.
+pub fn message_text(line: &str) -> &str {
+    let trimmed = line.trim();
+    if trimmed.starts_with('[')
+        && let Some((_, rest)) = trimmed.split_once("]: ")
+    {
+        return rest;
+    }
+    trimmed
+}

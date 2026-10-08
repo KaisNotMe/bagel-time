@@ -49,3 +49,5 @@ A Minecraft launcher in Rust, in the spirit of the Modrinth App and GDLauncher.
    - ~~"New instance" from the install picker only offers loaders and Minecraft versions the project supports, then installs it~~ done
    - ~~A CurseForge key pasted in Settings wins over the environment~~ done
    - ~~Servers: per-instance list (shared with the game's servers.dat), live status ping, one-click Join (Quick Play, or --server on old versions), recently played servers on Home~~ done
+   - ~~Host a server (vanilla, Fabric, Quilt, Forge, NeoForge; from an instance with its mods) with a live console, and share it through an automatic playit.gg tunnel; Servers section on Home~~ done
+   - Later: auto-detect servers for the Home section; LAN address in the invite box
