@@ -85,6 +85,44 @@ struct Running {
 #[derive(Default)]
 pub struct Hosting {
     servers: Mutex<HashMap<String, Running>>,
+    agent: Mutex<Agent>,
+}
+
+/// The playit agent, shared by every server with a tunnel. It runs while
+/// anything holds an [`AgentUse`].
+#[derive(Default)]
+struct Agent {
+    child: Option<tokio::process::Child>,
+    users: usize,
+}
+
+/// Keeps the playit agent running until dropped.
+pub struct AgentUse(Arc<AppState>);
+
+impl Drop for AgentUse {
+    fn drop(&mut self) {
+        let mut agent = self.0.hosting.agent.lock().unwrap();
+        agent.users = agent.users.saturating_sub(1);
+        if agent.users == 0 {
+            if let Some(mut child) = agent.child.take() {
+                let _ = child.start_kill();
+            }
+        }
+    }
+}
+
+/// Starts the playit agent if it isn't running, and keeps it running while
+/// the returned guard lives.
+async fn agent_acquire(state: &Arc<AppState>) -> Result<AgentUse, String> {
+    let mut cmd = state.playit.agent_command().await.map_err(err)?;
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    let mut agent = state.hosting.agent.lock().unwrap();
+    let alive = agent.child.as_mut().is_some_and(|c| matches!(c.try_wait(), Ok(None)));
+    if !alive {
+        agent.child = Some(cmd.spawn().map_err(|e| format!("Couldn't start the playit agent: {e}"))?);
+    }
+    agent.users += 1;
+    Ok(AgentUse(Arc::clone(state)))
 }
 
 impl Hosting {
@@ -365,13 +403,13 @@ async fn run_server(app: &AppHandle, state: &Arc<AppState>, server: HostedServer
     let stop_requested = || hosting.servers.lock().unwrap().get(&id).is_some_and(|r| r.stop_requested);
 
     // The tunnel first, so its address is ready by the time the server is.
-    let mut agent = None;
+    let mut _agent = None;
     if server.tunnel {
         if state.playit.connected().await {
             stage("Opening the tunnel");
             match start_tunnel(state, &server).await {
-                Ok((address, child)) => {
-                    agent = Some(child);
+                Ok((address, guard)) => {
+                    _agent = Some(guard);
                     let mut saved = server.clone();
                     saved.public_address = Some(address.clone());
                     let _ = state.hosts.save(&saved).await;
@@ -444,9 +482,6 @@ async fn run_server(app: &AppHandle, state: &Arc<AppState>, server: HostedServer
     writer.abort();
     let _ = out.await;
     let _ = errs.await;
-    if let Some(mut agent) = agent {
-        let _ = agent.kill().await;
-    }
     if let Some(r) = hosting.servers.lock().unwrap().get_mut(&id) {
         r.input = None;
     }
@@ -460,20 +495,11 @@ async fn run_server(app: &AppHandle, state: &Arc<AppState>, server: HostedServer
     Ok(())
 }
 
-/// Makes sure the tunnel exists and starts the playit agent.
-async fn start_tunnel(state: &AppState, server: &HostedServer) -> Result<(String, tokio::process::Child), String> {
+/// Makes sure the tunnel exists and the playit agent is running.
+async fn start_tunnel(state: &Arc<AppState>, server: &HostedServer) -> Result<(String, AgentUse), String> {
     let tunnel = state.playit.ensure_tunnel(&server.name, server.port).await.map_err(err)?;
-    let child = state
-        .playit
-        .agent_command()
-        .await
-        .map_err(err)?
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Couldn't start the playit agent: {e}"))?;
-    Ok((tunnel.address, child))
+    let guard = agent_acquire(state).await?;
+    Ok((tunnel.address, guard))
 }
 
 async fn pipe_console<R: AsyncRead + Unpin>(app: AppHandle, state: Arc<AppState>, id: String, reader: Option<R>) {
@@ -558,7 +584,18 @@ pub fn playit_start_claim() -> PlayitClaim {
 
 #[tauri::command]
 pub async fn playit_poll_claim(state: State<'_>, code: String) -> CmdResult<ClaimState> {
-    state.playit.poll_claim(&code).await.map_err(err)
+    let result = state.playit.poll_claim(&code).await.map_err(err)?;
+    if result == ClaimState::Connected {
+        // playit.gg's setup page waits until it sees the agent online, so run
+        // it for a few minutes even if no server is starting.
+        if let Ok(guard) = agent_acquire(&state).await {
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(180)).await;
+                drop(guard);
+            });
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]
