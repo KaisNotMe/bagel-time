@@ -52,6 +52,10 @@ pub enum Error {
     #[error("{0}")]
     Mods(String),
 
+    /// Installing Forge or NeoForge failed.
+    #[error("{0}")]
+    Installer(String),
+
     /// Bad input from the user, with a message that explains it.
     #[error("{0}")]
     Invalid(String),

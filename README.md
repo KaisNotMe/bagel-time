@@ -8,12 +8,12 @@ A Minecraft: Java Edition launcher written in Rust, in the spirit of the Modrint
 
 - Installs and launches any Minecraft release or snapshot, including very old versions
 - Downloads the right Java runtime automatically (from Mojang's runtime manifest)
-- Fabric and Quilt instances, each with its own game folder and pinned loader version
+- Fabric, Quilt, Forge and NeoForge instances, each with its own game folder and pinned loader version (Forge and NeoForge are installed by running their official installers' processors)
 - Microsoft account sign-in (device code flow → Xbox Live → Minecraft services), or offline mode
 - Live game log, progress while downloading, start/stop from the library
 - Modrinth: search and install mods with their dependencies, switch mods on and off, update them, and install modpacks (or import `.mrpack` files)
 
-Coming next: Forge and NeoForge, then CurseForge mods and modpacks.
+Coming next: CurseForge mods and modpacks.
 
 ## How sign-in works
 

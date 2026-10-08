@@ -220,7 +220,7 @@
             {:else}
               <div class="pills">
                 <button class="pill small" class:active={loader === null} onclick={() => (loader = null)}>Any</button>
-                {#each ["fabric", "quilt"] as l (l)}
+                {#each ["fabric", "quilt", "forge", "neoforge"] as l (l)}
                   <button class="pill small" class:active={loader === l} onclick={() => (loader = l as Loader)}>
                     {LOADER_NAMES[l as Loader]}
                   </button>

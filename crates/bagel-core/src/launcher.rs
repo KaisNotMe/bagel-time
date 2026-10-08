@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::account::Account;
 use crate::assets::install_assets;
 use crate::download::{DownloadJob, Downloader};
+use crate::forge;
 use crate::error::{Error, IoContext, Result, parse_json};
 use crate::java::{LEGACY_COMPONENT, ensure_runtime};
 use crate::launch::{LaunchContext, build_arguments};
@@ -118,10 +119,15 @@ impl Launcher {
     }
 
     /// The version JSON to launch: vanilla, with the loader profile applied if any.
-    async fn resolve_version(&self, game: &GameVersion) -> Result<VersionJson> {
+    async fn resolve_version(&self, game: &GameVersion, progress: &Progress) -> Result<VersionJson> {
         let vanilla = self.version_json(&game.minecraft).await?;
         match (game.loader, game.loader_version.as_deref()) {
             (Loader::Vanilla, _) => Ok(vanilla),
+            (loader, Some(loader_version)) if loader.uses_installer() => {
+                let profile =
+                    forge::load_profile(&self.dl, &self.paths, loader, &game.minecraft, loader_version, progress).await?;
+                Ok(vanilla.with_profile(profile))
+            }
             (loader, Some(loader_version)) => {
                 let profile = self.loader_profile(loader, &game.minecraft, loader_version).await?;
                 Ok(vanilla.with_profile(profile))
@@ -143,7 +149,7 @@ impl Launcher {
     /// Files already on disk are skipped, so this is cheap to call before every launch.
     pub async fn install(&self, game: &GameVersion, game_dir: &Path, progress: &Progress) -> Result<InstalledVersion> {
         progress.stage("Reading version info", 0);
-        let version = self.resolve_version(game).await?;
+        let version = self.resolve_version(game, progress).await?;
         // The client jar and natives belong to the vanilla version, even when modded.
         let id = game.minecraft.as_str();
 
@@ -177,6 +183,32 @@ impl Launcher {
             .as_ref()
             .map_or(LEGACY_COMPONENT, |j| j.component.as_str());
         let java = ensure_runtime(&self.dl, &self.paths, &self.env, component, progress).await?;
+
+        let jar = if game.loader.uses_installer() {
+            let ctx = forge::ProcessorContext {
+                dl: &self.dl,
+                paths: &self.paths,
+                env: &self.env,
+                loader: game.loader,
+                minecraft: &game.minecraft,
+                loader_version: game.loader_version.as_deref().unwrap_or_default(),
+                client_jar: &jar,
+                java: &java,
+            };
+            forge::run_processors(&ctx, progress).await?;
+            // Forge tells its launcher to skip `<version id>.jar` on the classpath,
+            // as Mojang's launcher names the inherited jar that way.
+            let named = self.paths.version_jar(&version.id);
+            if named.metadata().map(|m| m.len()).ok() != jar.metadata().map(|m| m.len()).ok() {
+                if let Some(parent) = named.parent() {
+                    tokio::fs::create_dir_all(parent).await.at(parent)?;
+                }
+                tokio::fs::copy(&jar, &named).await.at(&named)?;
+            }
+            named
+        } else {
+            jar
+        };
 
         progress.stage("Extracting natives", 0);
         let natives_dir = self.paths.natives_dir(id);

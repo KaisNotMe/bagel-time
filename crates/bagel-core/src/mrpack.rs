@@ -91,17 +91,17 @@ pub fn pack_game(index: &PackIndex) -> Result<GameVersion> {
     let minecraft = deps
         .get("minecraft")
         .ok_or_else(|| Error::Pack("The pack doesn't say which Minecraft version it needs.".into()))?;
-    for (key, name) in [("forge", "Forge"), ("neoforge", "NeoForge")] {
-        if deps.contains_key(key) {
-            return Err(Error::Pack(format!(
-                "This pack uses {name}, which Bagel Time doesn't support yet. It's coming in a later update."
-            )));
-        }
-    }
-    let (loader, loader_version) = if let Some(v) = deps.get("fabric-loader") {
-        (Loader::Fabric, Some(v.clone()))
-    } else if let Some(v) = deps.get("quilt-loader") {
-        (Loader::Quilt, Some(v.clone()))
+    let loaders = [
+        ("fabric-loader", Loader::Fabric),
+        ("quilt-loader", Loader::Quilt),
+        ("forge", Loader::Forge),
+        ("neoforge", Loader::NeoForge),
+    ];
+    let found = loaders.iter().find_map(|(key, loader)| deps.get(*key).map(|v| (*loader, v)));
+    let (loader, loader_version) = if let Some((loader, version)) = found {
+        // Some packs write Forge versions as "1.20.1-47.3.0".
+        let version = version.strip_prefix(&format!("{minecraft}-")).unwrap_or(version);
+        (loader, Some(version.to_string()))
     } else {
         (Loader::Vanilla, None)
     };
@@ -326,8 +326,10 @@ mod tests {
         assert_eq!(fabric.loader_version.as_deref(), Some("0.16.10"));
         let vanilla = pack_game(&index(&[("minecraft", "1.21.4")], serde_json::json!([]))).unwrap();
         assert_eq!(vanilla.loader, Loader::Vanilla);
-        let forge = pack_game(&index(&[("minecraft", "1.20.1"), ("forge", "47.3.0")], serde_json::json!([])));
-        assert!(forge.unwrap_err().to_string().contains("Forge"));
+        let forge = pack_game(&index(&[("minecraft", "1.20.1"), ("forge", "1.20.1-47.3.0")], serde_json::json!([]))).unwrap();
+        assert_eq!((forge.loader, forge.loader_version.as_deref()), (Loader::Forge, Some("47.3.0")));
+        let neo = pack_game(&index(&[("minecraft", "1.21.1"), ("neoforge", "21.1.77")], serde_json::json!([]))).unwrap();
+        assert_eq!(neo.loader, Loader::NeoForge);
         assert!(pack_game(&index(&[], serde_json::json!([]))).is_err());
     }
 

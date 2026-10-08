@@ -2,12 +2,14 @@
 // content.rs, accounts.rs).
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
-export type Loader = "vanilla" | "fabric" | "quilt";
+export type Loader = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
 
 export const LOADER_NAMES: Record<Loader, string> = {
   vanilla: "Vanilla",
   fabric: "Fabric",
   quilt: "Quilt",
+  forge: "Forge",
+  neoforge: "NeoForge",
 };
 
 export type LoaderVersion = { version: string; stable: boolean };

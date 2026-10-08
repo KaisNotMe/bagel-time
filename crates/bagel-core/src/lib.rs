@@ -6,6 +6,7 @@ mod assets;
 pub mod auth;
 pub mod download;
 pub mod error;
+mod forge;
 pub mod game_files;
 pub mod instance;
 pub mod java;

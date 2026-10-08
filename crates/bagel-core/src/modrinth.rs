@@ -274,6 +274,8 @@ pub fn mod_loaders(loader: Loader) -> &'static [&'static str] {
         Loader::Vanilla => &[],
         Loader::Fabric => &["fabric"],
         Loader::Quilt => &["quilt", "fabric"],
+        Loader::Forge => &["forge"],
+        Loader::NeoForge => &["neoforge"],
     }
 }
 
@@ -542,9 +544,6 @@ fn search_params(q: &SearchQuery) -> Vec<(&'static str, String)> {
         if !loaders.is_empty() {
             facets.push(loaders.iter().map(|l| format!("categories:{l}")).collect());
         }
-    } else if q.project_type == Some(ProjectType::Modpack) {
-        // Only packs we can install. Forge and NeoForge join in step 6.
-        facets.push(vec!["categories:fabric".into(), "categories:quilt".into()]);
     }
     for c in &q.categories {
         facets.push(vec![format!("categories:{c}")]);
@@ -613,7 +612,7 @@ mod tests {
         let params: HashMap<_, _> = search_params(&packs).into_iter().collect();
         assert_eq!(
             params["facets"],
-            r#"[["project_type:modpack"],["categories:fabric","categories:quilt"]]"#
+            r#"[["project_type:modpack"]]"#
         );
     }
 

@@ -57,7 +57,7 @@ pub fn resolve(libraries: &[Library], libraries_dir: &Path, env: &Environment) -
                 .map(|rel| job(dl, libraries_dir.join(rel))),
             // Mod loader libraries give a Maven repo instead of a full URL.
             None if lib.downloads.is_none() && lib.natives.is_none() => maven_path(&lib.name).map(|rel| {
-                let base = lib.url.as_deref().unwrap_or(LIBRARIES_URL);
+                let base = lib.url.as_deref().map_or(LIBRARIES_URL, upgrade_repo);
                 DownloadJob {
                     url: format!("{}/{rel}", base.trim_end_matches('/')),
                     path: libraries_dir.join(rel),
@@ -71,10 +71,23 @@ pub fn resolve(libraries: &[Library], libraries_dir: &Path, env: &Environment) -
             if on_classpath.insert(job.path.clone()) {
                 out.classpath.push(job.path.clone());
             }
-            out.jobs.push(job);
+            // No URL: the Forge installer creates or unpacks this file itself.
+            if !job.url.is_empty() {
+                out.jobs.push(job);
+            }
         }
     }
     out
+}
+
+/// Old Forge profiles point at a Maven host that has since moved.
+fn upgrade_repo(base: &str) -> &str {
+    match base.trim_end_matches('/') {
+        "http://files.minecraftforge.net/maven" | "https://files.minecraftforge.net/maven" => {
+            "https://maven.minecraftforge.net/"
+        }
+        _ => base,
+    }
 }
 
 fn job(dl: &Download, path: PathBuf) -> DownloadJob {
@@ -167,6 +180,19 @@ mod tests {
         assert_eq!(r.natives.len(), 1);
         assert_eq!(r.natives[0].path, Path::new("L").join("t/n64.jar"));
         assert_eq!(r.natives[0].exclude, vec!["META-INF/"]);
+    }
+
+    #[test]
+    fn installer_made_libraries_are_not_downloaded() {
+        let l = libs(
+            r#"[{"name":"net.minecraftforge:forge:1.12.2-14.23.5.2859","downloads":{"artifact":{
+                "path":"net/minecraftforge/forge/1.12.2-14.23.5.2859/forge-1.12.2-14.23.5.2859.jar","url":"","sha1":"s","size":1}}},
+               {"name":"org.scala-lang:scala-library:2.11.1","url":"http://files.minecraftforge.net/maven/"}]"#,
+        );
+        let r = resolve(&l, Path::new("L"), &env());
+        assert_eq!(r.classpath.len(), 2);
+        assert_eq!(r.jobs.len(), 1);
+        assert!(r.jobs[0].url.starts_with("https://maven.minecraftforge.net/org/scala-lang/"));
     }
 
     #[test]

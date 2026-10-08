@@ -133,6 +133,7 @@ pub struct Library {
 #[serde(rename_all = "camelCase")]
 pub struct LoaderProfile {
     pub id: String,
+    #[serde(default)]
     pub inherits_from: String,
     pub main_class: String,
     pub arguments: Option<Arguments>,

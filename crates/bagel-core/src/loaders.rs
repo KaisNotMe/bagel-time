@@ -1,5 +1,6 @@
 //! Mod loaders. Fabric and Quilt publish ready-made version profiles through
-//! their metadata APIs; Forge and NeoForge will need their installers (later).
+//! their metadata APIs; Forge and NeoForge are installed by running their
+//! installers (see `forge.rs`).
 
 use std::fmt;
 use std::str::FromStr;
@@ -16,6 +17,8 @@ pub enum Loader {
     Vanilla,
     Fabric,
     Quilt,
+    Forge,
+    NeoForge,
 }
 
 impl Loader {
@@ -24,14 +27,21 @@ impl Loader {
             Loader::Vanilla => "vanilla",
             Loader::Fabric => "fabric",
             Loader::Quilt => "quilt",
+            Loader::Forge => "forge",
+            Loader::NeoForge => "neoforge",
         }
+    }
+
+    /// Forge and NeoForge are set up by running their installers.
+    pub fn uses_installer(self) -> bool {
+        matches!(self, Loader::Forge | Loader::NeoForge)
     }
 
     fn meta_base(self) -> Option<&'static str> {
         match self {
-            Loader::Vanilla => None,
             Loader::Fabric => Some("https://meta.fabricmc.net/v2"),
             Loader::Quilt => Some("https://meta.quiltmc.org/v3"),
+            Loader::Vanilla | Loader::Forge | Loader::NeoForge => None,
         }
     }
 }
@@ -42,6 +52,8 @@ impl fmt::Display for Loader {
             Loader::Vanilla => "Vanilla",
             Loader::Fabric => "Fabric",
             Loader::Quilt => "Quilt",
+            Loader::Forge => "Forge",
+            Loader::NeoForge => "NeoForge",
         })
     }
 }
@@ -54,7 +66,11 @@ impl FromStr for Loader {
             "vanilla" => Ok(Loader::Vanilla),
             "fabric" => Ok(Loader::Fabric),
             "quilt" => Ok(Loader::Quilt),
-            other => Err(format!("unknown loader '{other}' (expected vanilla, fabric or quilt)")),
+            "forge" => Ok(Loader::Forge),
+            "neoforge" => Ok(Loader::NeoForge),
+            other => Err(format!(
+                "unknown loader '{other}' (expected vanilla, fabric, quilt, forge or neoforge)"
+            )),
         }
     }
 }
@@ -107,6 +123,9 @@ fn meta_url(loader: Loader, segments: &[&str]) -> Option<reqwest::Url> {
 /// Loader versions available for a Minecraft version, newest first. Empty if
 /// the loader doesn't support that version.
 pub async fn loader_versions(dl: &Downloader, loader: Loader, minecraft: &str) -> Result<Vec<LoaderVersion>> {
+    if loader.uses_installer() {
+        return crate::forge::versions(dl, loader, minecraft).await;
+    }
     let Some(url) = meta_url(loader, &["versions", "loader", minecraft]) else {
         return Ok(Vec::new());
     };
@@ -132,7 +151,7 @@ pub async fn loader_versions(dl: &Downloader, loader: Loader, minecraft: &str) -
 
 /// Compare dotted version strings numerically where possible, treating
 /// `1.0.0-beta.2` as older than `1.0.0`.
-fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
     fn split(v: &str) -> (&str, Option<&str>) {
@@ -221,6 +240,8 @@ mod tests {
     #[test]
     fn parses_loader_names() {
         assert_eq!("Fabric".parse::<Loader>().unwrap(), Loader::Fabric);
-        assert!("forge".parse::<Loader>().is_err());
+        assert_eq!("NeoForge".parse::<Loader>().unwrap(), Loader::NeoForge);
+        assert!("liteloader".parse::<Loader>().is_err());
+        assert_eq!(serde_json::to_string(&Loader::NeoForge).unwrap(), "\"neoforge\"");
     }
 }

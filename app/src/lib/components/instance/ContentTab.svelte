@@ -151,9 +151,14 @@
     for (const i of shown) selected[key(i)] = value;
   }
 
-  function installIris() {
+  // Forge runs shader packs through Oculus; everything else through Iris.
+  let shaderMod = $derived(
+    instance.loader === "forge" ? { slug: "oculus", name: "Oculus" } : { slug: "iris", name: "Iris" },
+  );
+
+  function installShaderMod() {
     return guard(["iris"], async () => {
-      await api.installContent(instance.id, "mod", "iris");
+      await api.installContent(instance.id, "mod", shaderMod.slug);
       await load();
     });
   }
@@ -205,9 +210,9 @@
   {#if needsIris}
     <div class="hint warn-box">
       <Icon name="sun" size={16} />
-      <span>Shader packs need the Iris mod to work.</span>
-      <button class="btn sm primary" disabled={running || !!busy.iris} onclick={installIris}>
-        {busy.iris ? "Installing…" : "Install Iris"}
+      <span>Shader packs need the {shaderMod.name} mod to work.</span>
+      <button class="btn sm primary" disabled={running || !!busy.iris} onclick={installShaderMod}>
+        {busy.iris ? "Installing…" : `Install ${shaderMod.name}`}
       </button>
     </div>
   {/if}

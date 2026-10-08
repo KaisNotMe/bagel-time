@@ -119,7 +119,8 @@ enum Command {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let paths = match cli.data_dir {
-        Some(dir) => Paths::new(dir),
+        // Absolute, because the game runs inside its own folder.
+        Some(dir) => Paths::new(std::path::absolute(&dir).context("invalid --data-dir")?),
         None => Paths::default_location().context("could not find a data folder for this OS")?,
     };
     let accounts = Accounts::new(&paths);

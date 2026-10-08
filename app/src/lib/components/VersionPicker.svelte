@@ -20,7 +20,7 @@
     valid = $bindable(false),
   }: Props = $props();
 
-  const loaders: Loader[] = ["vanilla", "fabric", "quilt"];
+  const loaders: Loader[] = ["vanilla", "fabric", "quilt", "forge", "neoforge"];
 
   let versions = $state<VersionInfo[]>([]);
   let loading = $state(false);
@@ -102,7 +102,6 @@
       >
     {/each}
   </div>
-  <small>Forge and NeoForge are on the way.</small>
 </div>
 
 <div class="row">
@@ -147,7 +146,7 @@
 <style>
   .segmented {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 4px;
     padding: 4px;
     border-radius: 12px;
