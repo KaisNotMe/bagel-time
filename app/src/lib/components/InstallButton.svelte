@@ -12,6 +12,8 @@
     title: string;
     projectType: ProjectType;
     versionId?: string | null;
+    /** Why this can't go into the instance; shows a greyed-out button. */
+    unavailable?: string | null;
     /** Install straight into this instance instead of asking. */
     instanceId?: string | null;
     installed?: boolean;
@@ -30,6 +32,7 @@
     installed = false,
     small = false,
     blockedUrl = null,
+    unavailable = null,
     oninstalled,
   }: Props = $props();
 
@@ -64,6 +67,11 @@
 <div class="wrap">
   {#if installed && !versionId}
     <span class="installed" class:small><Icon name="check" size={15} /> Installed</span>
+  {:else if unavailable}
+    <button class="btn off" class:sm={small} disabled title={unavailable}>
+      <Icon name="download" size={small ? 14 : 16} /> Install
+    </button>
+    <p class="why" title={unavailable}>{unavailable}</p>
   {:else if blockedUrl}
     <button
       class="btn"
@@ -129,6 +137,19 @@
   .installed.small {
     height: 30px;
     font-size: 13px;
+  }
+  .off {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .why {
+    color: var(--faint);
+    font-size: 12px;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
   .err {
     color: #ff8f86;

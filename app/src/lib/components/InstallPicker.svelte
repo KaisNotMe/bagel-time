@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, errorMessage, LOADER_NAMES, PROJECT_TYPE_NAMES, type ContentKind, type Source } from "$lib/api";
+  import { api, errorMessage, LOADER_NAMES, PROJECT_TYPE_NAMES, type ContentKind, type Fit, type Source } from "$lib/api";
   import { games } from "$lib/games.svelte";
   import { instances } from "$lib/instances.svelte";
   import { ui } from "$lib/ui.svelte";
@@ -20,13 +20,30 @@
 
   type RowState = { busy?: boolean; done?: boolean; error?: string };
   let rows = $state<Record<string, RowState>>({});
+  /** Per instance id; null while checking. */
+  let fits = $state<Record<string, Fit> | null>(null);
 
   $effect(() => {
-    if (open) rows = {};
+    if (!open) return;
+    rows = {};
+    fits = null;
+    api
+      .checkContentFit(kind, source, projectId, versionId)
+      .then((f) => (fits = f))
+      // Couldn't check: let every instance try, installing shows the real error.
+      .catch(() => (fits = {}));
   });
 
-  // Vanilla instances only take resource packs.
-  let compatible = $derived(instances.list.filter((i) => kind === "resourcepack" || i.loader !== "vanilla"));
+  function fitOf(id: string): Fit | null {
+    if (!fits) return null;
+    return fits[id] ?? { fits: true, version: null, reason: null };
+  }
+
+  // Ones that fit first; the rest keep their order.
+  let sorted = $derived(
+    fits ? [...instances.list].sort((a, b) => Number(fitOf(b.id)!.fits) - Number(fitOf(a.id)!.fits)) : instances.list,
+  );
+  let noneFit = $derived(fits !== null && instances.list.length > 0 && instances.list.every((i) => !fitOf(i.id)!.fits));
 
   async function install(id: string) {
     rows[id] = { busy: true };
@@ -40,19 +57,36 @@
 </script>
 
 <Modal {open} title="Install {title}" {onclose} width={520}>
-  <p class="muted">Choose an instance to add this {PROJECT_TYPE_NAMES[kind].one.toLowerCase()} to.</p>
+  <p class="muted">
+    Choose an instance to add this {PROJECT_TYPE_NAMES[kind].one.toLowerCase()} to. Instances it won't work in are greyed
+    out.
+  </p>
+  {#if noneFit}
+    <p class="note">
+      <Icon name="info" size={15} /> None of your instances can use {versionId ? "this version" : "it"}. Make a new
+      instance with a Minecraft version and loader it supports.
+    </p>
+  {/if}
   <div class="list">
-    {#each compatible as inst (inst.id)}
+    {#each sorted as inst (inst.id)}
       {@const row = rows[inst.id] ?? {}}
-      <div class="row">
+      {@const fit = fitOf(inst.id)}
+      <div class="row" class:off={fit && !fit.fits && !row.done}>
         <InstanceIcon instance={inst} size={40} />
         <div class="info">
           <b>{inst.name}</b>
-          <small>{LOADER_NAMES[inst.loader]} {inst.gameVersion}</small>
+          <small>
+            {LOADER_NAMES[inst.loader]} {inst.gameVersion}
+            {#if fit?.fits && fit.version}<span class="ver"> · gets {fit.version}</span>{/if}
+          </small>
           {#if row.error}<small class="err">{row.error}</small>{/if}
         </div>
         {#if row.done}
           <span class="tag ok"><Icon name="check" size={13} /> Installed</span>
+        {:else if !fit}
+          <span class="checking">Checking…</span>
+        {:else if !fit.fits}
+          <span class="why" title={fit.reason ?? undefined}>{fit.reason ?? "Won't work"}</span>
         {:else}
           <button
             class="btn sm primary"
@@ -65,9 +99,7 @@
         {/if}
       </div>
     {:else}
-      <p class="empty">
-        {kind === "resourcepack" ? "You don't have any instances yet." : "You need a modded instance (Fabric, Quilt, Forge or NeoForge) for this."}
-      </p>
+      <p class="empty">You don't have any instances yet.</p>
     {/each}
   </div>
   {#snippet footer()}
@@ -99,12 +131,20 @@
   .row:hover {
     background: var(--raised-2);
   }
+  .row.off {
+    opacity: 0.45;
+    filter: grayscale(1);
+  }
+  .row.off:hover {
+    background: none;
+  }
   .info {
     flex: 1;
     display: grid;
     min-width: 0;
   }
-  .info b {
+  .info b,
+  .info small {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -112,8 +152,31 @@
   .info small {
     color: var(--muted);
   }
+  .info .ver {
+    color: var(--faint);
+  }
   .info .err {
     color: #ff8f86;
+    white-space: normal;
+  }
+  .why,
+  .checking {
+    flex-shrink: 0;
+    max-width: 190px;
+    font-size: 12px;
+    color: var(--faint);
+    text-align: right;
+  }
+  .note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgb(233 196 106 / 0.12);
+    color: var(--warn);
+    font-size: 13px;
   }
   .empty {
     padding: 16px;

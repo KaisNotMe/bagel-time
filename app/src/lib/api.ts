@@ -174,6 +174,13 @@ export type Category = {
   iconUrl: string | null;
 };
 
+/** Whether a project fits an instance, and which version would go in. */
+export type Fit = {
+  fits: boolean;
+  version: string | null;
+  reason: string | null;
+};
+
 export type InstalledContent = {
   kind: ContentKind;
   /** Without the .disabled suffix; identifies the file in calls. */
@@ -266,6 +273,8 @@ export const api = {
   identifyContent: (id: string) => invoke<boolean>("identify_content", { id }),
   installContent: (id: string, kind: ContentKind, source: Source, projectId: string, versionId: string | null = null) =>
     invoke<void>("install_content", { id, kind, source, projectId, versionId }),
+  checkContentFit: (kind: ContentKind, source: Source, projectId: string, versionId: string | null = null) =>
+    invoke<Record<string, Fit>>("check_content_fit", { kind, source, projectId, versionId }),
   setContentEnabled: (id: string, kind: ContentKind, fileName: string, enabled: boolean) =>
     invoke<void>("set_content_enabled", { id, kind, fileName, enabled }),
   removeContent: (id: string, kind: ContentKind, fileName: string) =>

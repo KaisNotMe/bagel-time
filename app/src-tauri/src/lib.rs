@@ -86,6 +86,7 @@ pub fn run() {
             content::list_content,
             content::identify_content,
             content::install_content,
+            content::check_content_fit,
             content::set_content_enabled,
             content::remove_content,
             content::check_content_updates,

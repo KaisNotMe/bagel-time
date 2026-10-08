@@ -615,7 +615,17 @@ impl CurseForge {
         installed: &HashSet<String>,
     ) -> Result<Vec<PlannedFile>> {
         let root = match file_id {
-            Some(id) => self.file(mod_id, id).await?,
+            Some(id) => {
+                let file = self.file(mod_id, id).await?;
+                if !file.fits(target) {
+                    let title = self.title_of(mod_id).await;
+                    return Err(Error::Mods(format!(
+                        "{title} {} isn't made for {}.",
+                        file.display_name, target.label
+                    )));
+                }
+                file
+            }
             None => {
                 let files = self.compatible_files(mod_id, target).await?;
                 match pick_best(&files) {

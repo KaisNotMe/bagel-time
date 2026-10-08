@@ -8,6 +8,7 @@
     PROJECT_TYPE_NAMES,
     projectPageUrl,
     SOURCE_NAMES,
+    type ContentKind,
     type GalleryImage,
     type ProjectDetails,
     type ProjectVersion,
@@ -50,13 +51,18 @@
     if (project.projectType === "shader") return ["iris", "optifine"];
     return ["minecraft"];
   });
-  let shownVersions = $derived(
-    target && onlyCompatible
-      ? versions.filter(
-          (v) => v.gameVersions.includes(target.gameVersion) && v.loaders.some((l) => targetLoaders.includes(l)),
-        )
-      : versions,
-  );
+  /** Why a version won't work in the instance, or null if it will (same rule as installing). */
+  function versionProblem(v: ProjectVersion): string | null {
+    if (!target || !project) return null;
+    if (target.loader === "vanilla" && project.projectType !== "resourcepack") return "Needs a mod loader";
+    const fits =
+      v.gameVersions.includes(target.gameVersion) &&
+      (v.loaders.length === 0 || v.loaders.some((l) => targetLoaders.includes(l)));
+    return fits ? null : `Not made for ${LOADER_NAMES[target.loader]} ${target.gameVersion}`;
+  }
+  let shownVersions = $derived(target && onlyCompatible ? versions.filter((v) => !versionProblem(v)) : versions);
+  /** Why the project as a whole can't go into the instance. */
+  let projectProblem = $state<string | null>(null);
   let installed = $derived(!!project && installedIds.has(project.id));
   let pageUrl = $derived(
     project ? (project.websiteUrl ?? projectPageUrl(source, project.projectType, project.slug)) : "",
@@ -96,6 +102,16 @@
       .catch(() => {})
       .finally(() => (versionsLoaded = true));
     loadInstalled();
+  });
+
+  $effect(() => {
+    projectProblem = null;
+    if (!project || !isContent || !target) return;
+    const instance = target.id;
+    api
+      .checkContentFit(project.projectType as ContentKind, source, project.id)
+      .then((f) => (projectProblem = f[instance] && !f[instance].fits ? f[instance].reason : null))
+      .catch(() => {});
   });
 
   $effect(() => {
@@ -175,6 +191,7 @@
             projectType={project.projectType}
             instanceId={isContent ? (target?.id ?? null) : null}
             installed={isContent && installed}
+            unavailable={isContent && !installed ? projectProblem : null}
             oninstalled={loadInstalled}
           />
           <button class="btn" onclick={() => openUrl(pageUrl)}>
@@ -226,7 +243,8 @@
             {/if}
             <div class="versions">
               {#each shownVersions.slice(0, 100) as v (v.id)}
-                <div class="version">
+                {@const problem = isContent ? versionProblem(v) : null}
+                <div class="version" class:off={problem}>
                   <span class="vtype {v.versionType}" title={v.versionType}>{v.versionType[0].toUpperCase()}</span>
                   <div class="vinfo">
                     <b>{v.name}</b>
@@ -252,13 +270,18 @@
                     projectType={project.projectType}
                     versionId={v.id}
                     instanceId={isContent ? (target?.id ?? null) : null}
+                    unavailable={problem}
                     small
                     oninstalled={loadInstalled}
                   />
                 </div>
               {:else}
                 <p class="empty">
-                  {versionsLoaded ? "No versions match." : "Loading versions…"}
+                  {!versionsLoaded
+                    ? "Loading versions…"
+                    : target && onlyCompatible && versions.length > 0
+                      ? `No versions work in ${target.name}. Untick the box above to see them all.`
+                      : "No versions match."}
                 </p>
               {/each}
             </div>
@@ -549,6 +572,9 @@
   }
   .version + .version {
     border-top: 1px solid var(--line);
+  }
+  .version.off > :not(:last-child) {
+    opacity: 0.45;
   }
   .vtype {
     display: grid;

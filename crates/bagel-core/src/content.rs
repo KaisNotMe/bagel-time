@@ -719,6 +719,103 @@ async fn remove_if_exists(path: &Path) -> Result<()> {
     }
 }
 
+/// Whether a project can go into one instance, and which version would.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Fit {
+    pub fits: bool,
+    /// The version that would be installed, when known.
+    pub version: Option<String>,
+    /// Why it can't be installed.
+    pub reason: Option<String>,
+}
+
+impl Fit {
+    fn yes(version: Option<String>) -> Self {
+        Fit { fits: true, version, reason: None }
+    }
+
+    fn no(reason: String) -> Self {
+        Fit { fits: false, version: None, reason: Some(reason) }
+    }
+}
+
+/// Checks a project (or one of its versions, `version_id`) against several
+/// games at once, using the same rules as installing. Games that need the
+/// same thing share one lookup. If a lookup fails the game counts as
+/// fitting, so installing can still try and show the real error.
+pub async fn check_fit(
+    sources: &Sources,
+    source: Source,
+    kind: ContentKind,
+    project_id: &str,
+    version_id: Option<&str>,
+    games: &[GameVersion],
+) -> Result<Vec<Fit>> {
+    let targets: Vec<Option<Target>> = games
+        .iter()
+        .map(|g| kind.supported_by(g.loader).then(|| kind.target(g)))
+        .collect();
+    let unsupported = || Fit::no("Needs a mod loader".into());
+
+    if let Some(version_id) = version_id {
+        // One version: fetch it once and compare locally.
+        let accepts: Box<dyn Fn(&Target) -> bool> = match source {
+            Source::Modrinth => {
+                let v = sources.modrinth.version(version_id).await?;
+                Box::new(move |t| t.accepts(&v))
+            }
+            Source::CurseForge => {
+                let f = sources.curseforge.file(project_id, version_id).await?;
+                Box::new(move |t| f.fits(t))
+            }
+        };
+        return Ok(targets
+            .iter()
+            .map(|t| match t {
+                None => unsupported(),
+                Some(t) if accepts(t) => Fit::yes(None),
+                Some(t) => Fit::no(format!("Not made for {}", t.label)),
+            })
+            .collect());
+    }
+
+    let mut unique: Vec<&Target> = Vec::new();
+    for t in targets.iter().flatten() {
+        if !unique.iter().any(|u| u.label == t.label) {
+            unique.push(t);
+        }
+    }
+    let best = futures::future::join_all(unique.iter().map(|t| async move {
+        let found = match source {
+            Source::Modrinth => sources
+                .modrinth
+                .compatible_versions(project_id, t)
+                .await
+                .map(|vs| crate::modrinth::pick_best(&vs).map(|v| v.version_number.clone())),
+            Source::CurseForge => sources
+                .curseforge
+                .compatible_files(project_id, t)
+                .await
+                .map(|fs| curseforge::pick_best(&fs).map(|f| f.display_name.clone())),
+        };
+        (t.label.clone(), found)
+    }))
+    .await;
+    let best: HashMap<String, Result<Option<String>>> = best.into_iter().collect();
+    Ok(targets
+        .iter()
+        .map(|t| match t {
+            None => unsupported(),
+            Some(t) => match best.get(&t.label) {
+                Some(Ok(Some(v))) => Fit::yes(Some(v.clone())),
+                Some(Ok(None)) => Fit::no(format!("No version for {}", t.label)),
+                _ => Fit::yes(None),
+            },
+        })
+        .collect())
+}
+
 /// A bare file name: nothing that could point outside the folder.
 fn is_plain_file_name(name: &str) -> bool {
     !name.is_empty()

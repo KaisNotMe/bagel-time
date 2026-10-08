@@ -5,11 +5,12 @@
 //! both sites. Modpack installs report progress through the `pack-progress`
 //! event.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use bagel_core::cfpack::{self, ManualDownload, PackInstall};
-use bagel_core::content::{ContentKind, ContentUpdate, InstalledContent, InstanceContent, Source};
+use bagel_core::content::{check_fit, ContentKind, ContentUpdate, Fit, InstalledContent, InstanceContent, Source};
 use bagel_core::curseforge::CurseForge;
 use bagel_core::modrinth::{
     Category, ProjectDetails, ProjectType, SearchQuery, SearchResults, SortBy, TeamMember, Version,
@@ -201,6 +202,24 @@ pub async fn install_content(
     c.install(state.sources.modrinth.downloader(), &plan, &Progress::none())
         .await
         .map_err(err)
+}
+
+/// For each instance: can this project (or this version of it) go in, and
+/// which version would. Keyed by instance id.
+#[tauri::command]
+pub async fn check_content_fit(
+    state: State<'_>,
+    kind: ContentKind,
+    source: Source,
+    project_id: String,
+    version_id: Option<String>,
+) -> CmdResult<HashMap<String, Fit>> {
+    let list = state.store.list().await.map_err(err)?;
+    let games: Vec<_> = list.iter().map(|i| i.game()).collect();
+    let fits = check_fit(&state.sources, source, kind, &project_id, version_id.as_deref(), &games)
+        .await
+        .map_err(err)?;
+    Ok(list.into_iter().map(|i| i.id).zip(fits).collect())
 }
 
 #[tauri::command]

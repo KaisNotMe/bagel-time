@@ -455,7 +455,17 @@ impl Modrinth {
         installed: &HashSet<String>,
     ) -> Result<Vec<PlannedMod>> {
         let root = match version_id {
-            Some(id) => self.version(id).await?,
+            Some(id) => {
+                let version = self.version(id).await?;
+                if !target.accepts(&version) {
+                    let title = self.title_of(project_id).await;
+                    return Err(Error::Mods(format!(
+                        "{title} {} isn't made for {}.",
+                        version.version_number, target.label
+                    )));
+                }
+                version
+            }
             None => {
                 let versions = self.compatible_versions(project_id, target).await?;
                 match pick_best(&versions) {
@@ -537,6 +547,15 @@ pub struct Target {
     pub label: String,
 }
 
+impl Target {
+    /// Whether a version is made for this Minecraft version and one of the
+    /// loaders. Versions without loader tags count as fitting.
+    pub fn accepts(&self, version: &Version) -> bool {
+        version.game_versions.iter().any(|v| v == &self.minecraft)
+            && (version.loaders.is_empty() || version.loaders.iter().any(|l| self.loaders.contains(&l.as_str())))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PlannedMod {
     pub version: Version,
@@ -598,6 +617,25 @@ mod tests {
         let betas = [version("b2", "beta"), version("b1", "beta")];
         assert_eq!(pick_best(&betas).unwrap().id, "b2");
         assert!(pick_best(&[]).is_none());
+    }
+
+    #[test]
+    fn target_accepts_matching_versions_only() {
+        let target = Target {
+            minecraft: "1.21.4".into(),
+            loaders: mod_loaders(Loader::Quilt).to_vec(),
+            label: "Quilt 1.21.4".into(),
+        };
+        let mut v = version("a", "release");
+        v.game_versions = vec!["1.21.3".into(), "1.21.4".into()];
+        v.loaders = vec!["fabric".into()];
+        assert!(target.accepts(&v), "Quilt runs Fabric mods");
+        v.loaders = vec!["forge".into()];
+        assert!(!target.accepts(&v), "wrong loader");
+        v.loaders = vec![];
+        assert!(target.accepts(&v), "no loader tags");
+        v.game_versions = vec!["1.20.1".into()];
+        assert!(!target.accepts(&v), "wrong Minecraft version");
     }
 
     #[test]
