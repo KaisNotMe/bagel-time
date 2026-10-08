@@ -56,8 +56,23 @@ impl Downloader {
     }
 
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        let resp = self.client.get(url).send().await?.error_for_status()?;
+        let resp = self.get(url).await?;
         Ok(resp.bytes().await?.to_vec())
+    }
+
+    /// A GET that sends the CurseForge key to CurseForge's file hosts, which
+    /// refuse downloads without one.
+    async fn get(&self, url: &str) -> Result<reqwest::Response> {
+        let mut req = self.client.get(url);
+        let curseforge = crate::curseforge::is_download_host(url);
+        if curseforge && let Some(key) = crate::curseforge::current_key() {
+            req = req.header("x-api-key", key);
+        }
+        let resp = req.send().await?;
+        if curseforge && let Some(e) = crate::curseforge::key_error(resp.status()) {
+            return Err(e);
+        }
+        Ok(resp.error_for_status()?)
     }
 
     pub async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T> {
@@ -91,7 +106,8 @@ impl Downloader {
             match self.try_fetch(job).await {
                 Ok(()) => return Ok(()),
                 // A disk problem won't fix itself by retrying.
-                Err(e @ Error::Io { .. }) => return Err(e),
+                // Neither will a refused key.
+                Err(e @ (Error::Io { .. } | Error::Mods(_))) => return Err(e),
                 Err(e) => last_err = Some(e),
             }
         }
@@ -100,7 +116,7 @@ impl Downloader {
 
     async fn try_fetch(&self, job: &DownloadJob) -> Result<()> {
         let tmp = part_path(&job.path);
-        let mut resp = self.client.get(&job.url).send().await?.error_for_status()?;
+        let mut resp = self.get(&job.url).await?;
         let mut file = tokio::fs::File::create(&tmp).await.at(&tmp)?;
         let mut hasher = Sha1::new();
         while let Some(chunk) = resp.chunk().await? {

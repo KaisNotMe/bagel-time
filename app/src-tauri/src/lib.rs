@@ -91,6 +91,7 @@ pub fn run() {
             accounts::remove_account,
             content::search_projects,
             content::curseforge_status,
+            content::check_curseforge_key,
             content::get_project,
             content::get_project_members,
             content::get_project_versions,

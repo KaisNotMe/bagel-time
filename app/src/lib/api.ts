@@ -360,6 +360,7 @@ export const api = {
 
   searchProjects: (args: SearchArgs) => invoke<SearchResults>("search_projects", { args }),
   curseforgeStatus: () => invoke<CurseForgeStatus>("curseforge_status"),
+  checkCurseforgeKey: () => invoke<void>("check_curseforge_key"),
   getProject: (source: Source, id: string) => invoke<ProjectDetails>("get_project", { source, id }),
   getProjectMembers: (source: Source, id: string) => invoke<TeamMember[]>("get_project_members", { source, id }),
   getProjectVersions: (source: Source, id: string, loaders: string[] = [], gameVersions: string[] = []) =>

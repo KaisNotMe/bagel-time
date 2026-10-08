@@ -84,6 +84,12 @@ pub fn curseforge_status(state: State<'_>) -> CurseForgeStatus {
     }
 }
 
+/// Asks CurseForge whether the current key works.
+#[tauri::command]
+pub async fn check_curseforge_key(state: State<'_>) -> CmdResult<()> {
+    state.sources.curseforge.check_key().await.map_err(err)
+}
+
 #[tauri::command]
 pub async fn get_project(state: State<'_>, source: Source, id: String) -> CmdResult<ProjectDetails> {
     match source {

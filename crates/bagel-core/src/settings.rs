@@ -14,7 +14,7 @@ pub struct Settings {
     pub show_snapshots: bool,
     /// Extra JVM arguments for every instance, space separated.
     pub java_args: String,
-    /// CurseForge API key; the BAGEL_CURSEFORGE_KEY environment variable wins.
+    /// CurseForge API key; wins over the BAGEL_CURSEFORGE_KEY environment variable.
     pub curseforge_api_key: String,
 }
 

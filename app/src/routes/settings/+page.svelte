@@ -49,7 +49,17 @@
     message = null;
     try {
       settings = await api.saveSettings($state.snapshot(settings));
-      message = { ok: true, text: "Saved." };
+      cfStatus = await api.curseforgeStatus();
+      if (settings.curseforgeApiKey) {
+        try {
+          await api.checkCurseforgeKey();
+          message = { ok: true, text: "Saved. Your CurseForge key works." };
+        } catch (err) {
+          message = { ok: false, text: `Saved, but ${errorMessage(err)}` };
+        }
+      } else {
+        message = { ok: true, text: "Saved." };
+      }
     } catch (err) {
       message = { ok: false, text: errorMessage(err) };
     } finally {

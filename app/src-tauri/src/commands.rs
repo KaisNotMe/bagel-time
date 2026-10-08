@@ -268,7 +268,8 @@ pub async fn get_settings(state: State<'_>) -> CmdResult<Settings> {
 }
 
 #[tauri::command]
-pub async fn save_settings(state: State<'_>, settings: Settings) -> CmdResult<Settings> {
+pub async fn save_settings(state: State<'_>, mut settings: Settings) -> CmdResult<Settings> {
+    settings.curseforge_api_key = bagel_core::curseforge::clean_key(&settings.curseforge_api_key);
     if !is_valid_username(&settings.offline_username) {
         return Err("Usernames are 3-16 characters: letters, numbers and _ only.".into());
     }

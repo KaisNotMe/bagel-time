@@ -8,7 +8,7 @@
 //! Docs: https://docs.curseforge.com/rest-api/
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -368,10 +368,52 @@ struct FingerprintMatch {
     file: CfFile,
 }
 
+/// The key from settings. Process-wide because every downloader needs it:
+/// CurseForge's file CDN refuses downloads without a key (since July 2026).
+static SETTINGS_KEY: RwLock<String> = RwLock::new(String::new());
+
+/// Tidies a pasted key: surrounding quotes, spaces and line breaks, or a
+/// copied `x-api-key:` prefix.
+pub fn clean_key(key: &str) -> String {
+    let key = key.trim();
+    let key = key
+        .strip_prefix("x-api-key:")
+        .or_else(|| key.strip_prefix("X-Api-Key:"))
+        .unwrap_or(key);
+    key.trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
+}
+
+/// Settings first (so a key the player pastes always wins), then the
+/// environment at run time, then at build time (so release builds work
+/// without setup and the key never sits in the repository).
+pub(crate) fn current_key() -> Option<String> {
+    let clean = |k: &str| Some(clean_key(k)).filter(|k| !k.is_empty());
+    clean(&SETTINGS_KEY.read().expect("key lock"))
+        .or_else(|| std::env::var(KEY_ENV).ok().and_then(|k| clean(&k)))
+        .or_else(|| option_env!("BAGEL_CURSEFORGE_KEY").and_then(clean))
+}
+
+/// Whether `url` is one of CurseForge's file hosts.
+pub(crate) fn is_download_host(url: &str) -> bool {
+    reqwest::Url::parse(url).is_ok_and(|u| u.host_str().is_some_and(|h| DOWNLOAD_HOSTS.contains(&h)))
+}
+
+const BAD_KEY: &str =
+    "CurseForge says the API key is missing or invalid. Get a new one at console.curseforge.com and paste it in Settings.";
+
+/// The error for a refused request, or `None` when the status is fine.
+pub(crate) fn key_error(status: reqwest::StatusCode) -> Option<Error> {
+    (status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::UNAUTHORIZED)
+        .then(|| Error::Mods(BAD_KEY.into()))
+}
+
 #[derive(Clone, Default)]
 pub struct CurseForge {
     dl: Downloader,
-    key: Arc<RwLock<String>>,
 }
 
 impl CurseForge {
@@ -385,19 +427,19 @@ impl CurseForge {
         &self.dl
     }
 
-    /// Uses a new key from settings. The environment variable still wins.
+    /// Uses a new key from settings.
     pub fn set_key(&self, key: &str) {
-        *self.key.write().expect("key lock") = key.trim().to_string();
+        *SETTINGS_KEY.write().expect("key lock") = clean_key(key);
     }
 
-    /// Settings first (so a key the player pastes always wins), then the
-    /// environment at run time, then at build time (so release builds work
-    /// without setup and the key never sits in the repository).
     fn key(&self) -> Option<String> {
-        let clean = |k: &str| Some(k.trim().to_string()).filter(|k| !k.is_empty());
-        clean(&self.key.read().expect("key lock"))
-            .or_else(|| std::env::var(KEY_ENV).ok().and_then(|k| clean(&k)))
-            .or_else(|| option_env!("BAGEL_CURSEFORGE_KEY").and_then(clean))
+        current_key()
+    }
+
+    /// Asks CurseForge whether the current key works.
+    pub async fn check_key(&self) -> Result<()> {
+        let _: serde_json::Value = self.get(&["games", &GAME_ID.to_string()], &[]).await?;
+        Ok(())
     }
 
     /// Whether this build has a key built in.
@@ -432,10 +474,8 @@ impl CurseForge {
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await?;
-        if resp.status() == reqwest::StatusCode::FORBIDDEN || resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(Error::Mods(
-                "CurseForge says the API key is missing or invalid. Get a new one at console.curseforge.com and paste it in Settings.".into(),
-            ));
+        if let Some(e) = key_error(resp.status()) {
+            return Err(e);
         }
         let resp = resp.error_for_status()?;
         parse_json(&resp.bytes().await?, url)
@@ -873,6 +913,23 @@ pub async fn fingerprint_file(path: &std::path::Path) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pasted_keys_are_tidied() {
+        assert_eq!(clean_key("  abc.def/ghi \r\n"), "abc.def/ghi");
+        assert_eq!(clean_key("\"abc\""), "abc");
+        assert_eq!(clean_key("x-api-key: abc"), "abc");
+        assert_eq!(clean_key("ab c\nd"), "abcd");
+        assert_eq!(clean_key(""), "");
+    }
+
+    #[test]
+    fn download_hosts_get_the_key() {
+        assert!(is_download_host("https://edge.forgecdn.net/files/1/2/a.jar"));
+        assert!(is_download_host("https://mediafilez.forgecdn.net/files/1/2/a.jar"));
+        assert!(!is_download_host("https://cdn.modrinth.com/data/a.jar"));
+        assert!(!is_download_host("https://edge.forgecdn.net.evil.com/a.jar"));
+    }
 
     fn file(game_versions: &[&str]) -> CfFile {
         serde_json::from_value(serde_json::json!({
