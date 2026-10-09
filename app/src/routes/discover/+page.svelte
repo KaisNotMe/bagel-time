@@ -312,8 +312,8 @@
           <div class="empty-state card">
             <Icon name="key" size={32} stroke={1.4} />
             <h3>CurseForge needs an API key</h3>
-            <p>Paste your CurseForge API key in Settings to browse and install from CurseForge.</p>
-            <a class="btn primary" href="/settings"><Icon name="settings" size={16} /> Open Settings</a>
+            <p>Add your key in Settings to use CurseForge.</p>
+            <a class="btn primary" href="/settings"><Icon name="settings" size={16} /> Add key in Settings</a>
           </div>
         {/if}
         {#if error}<p class="alert">{error}</p>{/if}

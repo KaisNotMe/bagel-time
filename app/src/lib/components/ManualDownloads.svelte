@@ -12,9 +12,8 @@
 <Modal open={manual !== null} title="A few files need downloading by hand" onclose={() => (packs.manual = null)} width={600}>
   {#if manual}
     <p class="muted">
-      <b>{manual.instance.name}</b> is installed, but these authors only allow downloads from the CurseForge
-      website. Download each file, then put it in the instance's
-      {folders.length === 1 ? `${folders[0]} folder` : "folder shown next to it"}.
+      These can only be downloaded from the CurseForge website. Download each one and put it in the
+      {folders.length === 1 ? `${folders[0]} folder` : "folder shown under it"}.
     </p>
     <div class="list">
       {#each manual.files as f (f.fileName)}

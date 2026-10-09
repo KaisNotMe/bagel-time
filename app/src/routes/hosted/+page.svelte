@@ -170,24 +170,28 @@
         <div class="share-main">
           <h2>Invite your friends</h2>
           {#if server.tunnel && address}
-            <p class="muted">Send them this address. They add it under Multiplayer (or in Bagel Time's Servers tab) and join.</p>
+            <p class="muted">Send them this address to add under Multiplayer.</p>
             <CopyAddress {address} />
           {:else if server.tunnel && hosting.playitConnected === false}
-            <p class="muted">Connect playit.gg once, then start the server to get an address your friends can use.</p>
+            <p class="muted">Connect playit.gg to get an address for friends.</p>
             <PlayitConnect />
           {:else if server.tunnel}
             <p class="muted">
-              {phase === "stopped" ? "Start the server to get its public address." : "Getting the public address…"}
+              {phase === "stopped" ? "Press Start to get the address." : "Getting the address…"}
             </p>
           {:else}
-            <p class="muted">Only people on your network can join. Turn on "Let friends join from anywhere" in Settings to share it.</p>
+            <p class="muted">
+              Only people on your Wi-Fi can join.
+              <button class="link" onclick={() => (tab = "settings")}>Let friends join from anywhere</button>
+            </p>
           {/if}
           {#if server.status.tunnelError && !(server.tunnel && hosting.playitConnected === false)}
             <p class="warn small">{server.status.tunnelError}</p>
           {/if}
           {#if !server.onlineMode && server.tunnel}
             <p class="faint small">
-              Anyone with the address can join under any name. Turn on the whitelist in Settings to limit it to your friends.
+              Anyone with the address can join.
+              <button class="link" onclick={() => (tab = "settings")}>Turn on the whitelist</button>
             </p>
           {/if}
         </div>
@@ -275,7 +279,7 @@
             </label>
             <label class="check">
               <input type="checkbox" bind:checked={form.tunnel} />
-              <span>Let friends join from anywhere <small class="muted">(playit.gg tunnel)</small></span>
+              <span>Let friends join from anywhere</span>
             </label>
             <label class="check">
               <input type="checkbox" bind:checked={form.onlineMode} />
@@ -284,8 +288,7 @@
             <label class="check">
               <input type="checkbox" bind:checked={form.whitelist} />
               <span>
-                Whitelist <small class="muted">(only listed players can join; add them in the console with
-                  <code>whitelist add Name</code>)</small>
+                Whitelist <small class="muted">(add players in the console: <code>whitelist add Name</code>)</small>
               </span>
             </label>
           </fieldset>
@@ -312,6 +315,15 @@
 </div>
 
 <style>
+  .link {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--accent, var(--primary));
+    text-decoration: underline;
+    cursor: pointer;
+    font: inherit;
+  }
   .hero {
     display: flex;
     align-items: center;

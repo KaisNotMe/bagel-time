@@ -205,7 +205,7 @@
   </div>
 
   {#if instance.loader === "vanilla"}
-    <p class="hint"><Icon name="info" size={15} /> Mods and shaders need Fabric or Quilt. Vanilla instances can use resource packs.</p>
+    <p class="hint"><Icon name="info" size={15} /> Vanilla can only use resource packs. Mods need Fabric, Quilt, Forge or NeoForge.</p>
   {/if}
   {#if needsIris}
     <div class="hint warn-box">
@@ -228,9 +228,8 @@
     <div class="empty-state card">
       <Icon name="puzzle" size={36} stroke={1.4} />
       <h3>No content yet</h3>
-      <p>Add mods, resource packs or shaders from Modrinth or CurseForge.</p>
       <a class="btn primary" href="/discover?type={kinds[0]}&instance={encodeURIComponent(instance.id)}">
-        <Icon name="compass" size={16} /> Discover content
+        <Icon name="plus" size={16} /> Add content
       </a>
     </div>
   {:else if loaded}
@@ -331,7 +330,7 @@
 
 <Modal open={confirmRemove !== null} title="Remove {confirmRemove?.length === 1 ? 'file' : `${confirmRemove?.length} files`}?" onclose={() => (confirmRemove = null)}>
   {#if confirmRemove?.some((i) => !i.projectId)}
-    <p>Some of these aren't from Modrinth or CurseForge, so Bagel Time can't download them again.</p>
+    <p>Some of these were added by hand and can't be downloaded again.</p>
   {/if}
   <ul class="remove-list">
     {#each confirmRemove ?? [] as i (key(i))}<li>{i.title}</li>{/each}

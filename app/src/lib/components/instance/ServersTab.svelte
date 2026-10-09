@@ -102,7 +102,7 @@
 <div class="tab">
   <div class="toolbar">
     <p class="muted hint">
-      {running ? "Close the game to change this list." : "Same list as Multiplayer in the game. Press Join to start and connect in one go."}
+      {running ? "Close the game to change this list." : ""}
     </p>
     <button class="btn" onclick={refresh} disabled={list.length + recentOnly.length === 0}>
       <Icon name="refresh" size={16} /> Refresh
@@ -137,7 +137,7 @@
     <div class="empty-state card">
       <Icon name="server" size={36} stroke={1.4} />
       <h3>No servers yet</h3>
-      <p>Add the server your friends play on, then press Join to hop straight in.</p>
+      <p>Press <b>Add server</b>, then <b>Join</b> to play.</p>
     </div>
   {:else}
     <div class="list">

@@ -4,6 +4,8 @@
   import { account } from "$lib/account.svelte";
   import LoginDialog from "$lib/components/LoginDialog.svelte";
   import { ui } from "$lib/ui.svelte";
+  import Icon from "$lib/components/Icon.svelte";
+  import { openUrl } from "@tauri-apps/plugin-opener";
 
   ui.setCrumbs({ label: "Settings" });
 
@@ -106,7 +108,6 @@
         <label class="field">
           <span>Offline username</span>
           <input class="input" bind:value={settings.offlineUsername} maxlength="16" spellcheck="false" />
-          <small>3–16 characters: letters, numbers and _</small>
         </label>
       </section>
 
@@ -115,7 +116,7 @@
         <label class="field">
           <span>Default maximum memory <b>{(settings.memoryMb / 1024).toFixed(1)} GB</b></span>
           <input type="range" min="1024" max="16384" step="512" bind:value={settings.memoryMb} />
-          <small>4 GB suits vanilla. Big modpacks usually want 6–8 GB. Java is downloaded automatically.</small>
+          <small>Big modpacks want 6–8 GB.</small>
         </label>
         <label class="field">
           <span>Java arguments</span>
@@ -126,7 +127,6 @@
             placeholder="-XX:+UseG1GC"
             spellcheck="false"
           ></textarea>
-          <small>Added to every instance. An instance's own arguments come after these.</small>
         </label>
       </section>
 
@@ -134,19 +134,19 @@
         <h2>CurseForge</h2>
         <label class="field">
           <span>API key</span>
-          <input
-            class="input mono"
-            type="password"
-            bind:value={settings.curseforgeApiKey}
-            placeholder="Paste your key from console.curseforge.com"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <small>
-            {cfStatus?.managed
-              ? "This build has a key built in. A key pasted here is used instead."
-              : "Needed to browse and install from CurseForge. Stored only on this computer."}
-          </small>
+          <div class="key-row">
+            <input
+              class="input mono"
+              type="password"
+              bind:value={settings.curseforgeApiKey}
+              placeholder={cfStatus?.managed ? "Using the built-in key" : "Paste your key here"}
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button class="btn" type="button" onclick={() => openUrl("https://console.curseforge.com/")}>
+              <Icon name="external" size={15} /> Get a key
+            </button>
+          </div>
         </label>
       </section>
 
@@ -181,6 +181,13 @@
 />
 
 <style>
+  .key-row {
+    display: flex;
+    gap: 8px;
+  }
+  .key-row .input {
+    flex: 1;
+  }
   .narrow {
     max-width: 720px;
   }

@@ -131,7 +131,7 @@
       <p class="empty">Loading…</p>
     {:else if allLines.length === 0 || (allLines.length === 1 && !allLines[0].text)}
       <p class="empty">
-        {source === LIVE ? "Nothing yet. Press Play and the game's output shows up here." : "This log is empty."}
+        {source === LIVE ? "Press Play to see the game's output." : "This log is empty."}
       </p>
     {:else}
       {#if filtered.length > MAX_LINES}

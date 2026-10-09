@@ -69,7 +69,7 @@
 
 <Modal {open} title="Sign in with Microsoft" onclose={close}>
   {#if login}
-    <p class="muted">Enter this code on Microsoft's sign-in page, then come back here.</p>
+    <p class="muted">Enter this code on Microsoft's page.</p>
     <div class="code" aria-label="Sign-in code">{login.userCode}</div>
     <button class="btn primary wide" onclick={copyAndOpen}>
       {copied ? "Code copied, opening browser…" : "Copy code and open browser"}

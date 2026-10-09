@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, errorMessage, LOADER_NAMES, PROJECT_TYPE_NAMES, type ContentKind, type Fit, type Source } from "$lib/api";
+  import { api, errorMessage, LOADER_NAMES, type ContentKind, type Fit, type Source } from "$lib/api";
   import { games } from "$lib/games.svelte";
   import { acceptedLoaders } from "$lib/fit";
   import { instances } from "$lib/instances.svelte";
@@ -60,14 +60,10 @@
 </script>
 
 <Modal {open} title="Install {title}" {onclose} width={520}>
-  <p class="muted">
-    Choose an instance to add this {PROJECT_TYPE_NAMES[kind].one.toLowerCase()} to. Instances it won't work in are greyed
-    out.
-  </p>
   {#if noneFit}
     <p class="note">
-      <Icon name="info" size={15} /> None of your instances can use {versionId ? "this version" : "it"}. Create a new
-      instance below; it only offers versions that work.
+      <Icon name="info" size={15} /> None of your instances can use {versionId ? "this version" : "it"}. Make a new
+      one below.
     </p>
   {/if}
   <div class="list">
@@ -104,8 +100,8 @@
     {:else}
       <p class="empty">
         {instances.list.length === 0
-          ? "You don't have any instances yet."
-          : "You need a modded instance (Fabric, Quilt, Forge or NeoForge) for this."} Create one below.
+          ? "No instances yet."
+          : "This needs a modded instance."} Make one below.
       </p>
     {/each}
   </div>

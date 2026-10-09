@@ -188,7 +188,6 @@
         <div class="group">
           <div>
             <h3>Duplicate</h3>
-            <p>Makes a full copy, worlds and mods included.</p>
           </div>
           <button class="btn" disabled={busy || running} onclick={duplicate}><Icon name="copyplus" size={15} /> Duplicate</button>
         </div>
@@ -196,7 +195,7 @@
         <div class="group danger">
           <div>
             <h3>Delete instance</h3>
-            <p>Removes the instance and everything in its folder, including worlds. This can't be undone.</p>
+            <p>Its worlds go too. Can't be undone.</p>
           </div>
           <button class="btn {confirmDelete ? 'danger' : 'danger-soft'}" disabled={busy || running} onclick={remove}>
             <Icon name="trash" size={15} />
@@ -221,8 +220,7 @@
         />
         {#if versionChanged}
           <p class="warning">
-            Mods made for one version usually don't work on another, and going back to an older Minecraft version can
-            damage worlds. Duplicate the instance first if you want a backup.
+            Mods may stop working, and older versions can break worlds. Duplicate first to keep a backup.
           </p>
         {/if}
         <div class="actions">
@@ -238,7 +236,6 @@
         <label class="field" class:disabled={!customMemory}>
           <span>Maximum memory <b class="value">{(memoryMb / 1024).toFixed(1)} GB</b></span>
           <input type="range" min="1024" max="16384" step="512" bind:value={memoryMb} disabled={!customMemory} />
-          <small>Off means the default from Settings is used.</small>
         </label>
         <label class="field">
           <span>Java arguments</span>
@@ -249,7 +246,6 @@
             placeholder="-XX:+UseG1GC -XX:MaxGCPauseMillis=50"
             spellcheck="false"
           ></textarea>
-          <small>Added after the launcher's own arguments, separated by spaces.</small>
         </label>
         <div class="actions">
           <button class="btn primary" disabled={busy} onclick={saveJava}>Save</button>

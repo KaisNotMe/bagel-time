@@ -67,7 +67,7 @@
 
 <div class="tab">
   <div class="toolbar">
-    <span class="muted">{shots.length} {shots.length === 1 ? "screenshot" : "screenshots"} · press F2 in game to take one</span>
+    <span class="muted">{shots.length} {shots.length === 1 ? "screenshot" : "screenshots"}</span>
     <button class="btn" onclick={() => api.openInstanceFolder(instance.id, "screenshots")}>
       <Icon name="folder" size={16} /> Screenshots folder
     </button>

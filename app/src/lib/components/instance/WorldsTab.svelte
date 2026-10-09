@@ -54,7 +54,6 @@
     <div class="empty-state card">
       <Icon name="globe" size={36} stroke={1.4} />
       <h3>No worlds yet</h3>
-      <p>Worlds you create in this instance show up here.</p>
     </div>
   {:else}
     <div class="list">

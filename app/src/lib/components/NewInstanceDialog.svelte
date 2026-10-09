@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, errorMessage, LOADER_NAMES, PROJECT_TYPE_NAMES, type Instance, type Loader } from "$lib/api";
+  import { api, errorMessage, LOADER_NAMES, type Instance, type Loader } from "$lib/api";
   import { supportedGames } from "$lib/fit";
   import { packs } from "$lib/packs.svelte";
   import type { CreatingFor } from "$lib/ui.svelte";
@@ -104,8 +104,7 @@
         {:else if nothingFits}
           {forProject.title} has no {forProject.versionId ? "Minecraft version" : "versions"} Bagel Time can install.
         {:else}
-          Only loaders and Minecraft versions this {PROJECT_TYPE_NAMES[forProject.kind].one.toLowerCase()} works
-          with are shown. It's installed as soon as the instance is created.
+          Only versions {forProject.title} works with are shown.
         {/if}
       </p>
     {/if}

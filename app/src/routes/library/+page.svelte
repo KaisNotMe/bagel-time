@@ -163,9 +163,9 @@
       <div class="empty-state">
         <BagelLogo size={72} />
         <h3>Nothing in the oven yet</h3>
-        <p>Create an instance to pick a Minecraft version, or install a modpack.</p>
+        <p>Pick a Minecraft version or a modpack.</p>
         <div class="head-actions">
-          <button class="btn primary" onclick={() => ui.newInstance()}>Create an instance</button>
+          <button class="btn primary" onclick={() => ui.newInstance()}>New instance</button>
           <a class="btn" href="/discover?type=modpack">Browse modpacks</a>
         </div>
       </div>
@@ -199,8 +199,7 @@
 
 <Modal open={toDelete !== null} title="Delete instance?" onclose={() => (toDelete = null)}>
   <p>
-    <strong>{toDelete?.name}</strong> and everything in its folder will be permanently deleted, including its worlds
-    and screenshots. This can't be undone.
+    <strong>{toDelete?.name}</strong> and its worlds will be gone for good.
   </p>
   {#snippet footer()}
     <button class="btn ghost" onclick={() => (toDelete = null)}>Cancel</button>

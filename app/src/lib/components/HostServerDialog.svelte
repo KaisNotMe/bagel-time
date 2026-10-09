@@ -93,10 +93,7 @@
     </div>
 
     {#if mode === "instance"}
-      <p class="muted small">
-        The server gets the same Minecraft version and loader, plus the instance's mods and configs (mods that only
-        work in the game client are left out). Your friends play with the same instance.
-      </p>
+      <p class="muted small">Uses the same version and mods. Friends need the same mods too.</p>
       <div class="instances">
         {#each instances.list as inst (inst.id)}
           <button type="button" class="inst" class:selected={fromInstance === inst.id} onclick={() => (fromInstance = inst.id)}>
@@ -120,7 +117,7 @@
 
     <label class="check">
       <input type="checkbox" bind:checked={tunnel} />
-      <span>Let friends join from anywhere <small class="muted">(free playit.gg tunnel, no port forwarding)</small></span>
+      <span>Let friends join from anywhere</span>
     </label>
     {#if tunnel && hosting.playitConnected === false}
       <PlayitConnect />
@@ -130,11 +127,7 @@
       <input type="checkbox" bind:checked={onlineMode} />
       <span>
         Only players signed in with a Microsoft account
-        <small class="muted">
-          {account.list.active
-            ? "(recommended: stops people joining under someone else's name)"
-            : "(leave off while you play offline, or you can't join your own server)"}
-        </small>
+        {#if !account.list.active}<small class="muted">(leave off, you're playing offline)</small>{/if}
       </span>
     </label>
 
@@ -142,9 +135,7 @@
       <input type="checkbox" bind:checked={eula} />
       <span>
         I agree to the
-        <button type="button" class="link" onclick={() => openUrl("https://aka.ms/MinecraftEULA")}>Minecraft EULA</button>
-        <small class="muted">(Mojang requires this to run a server)</small>
-      </span>
+        <button type="button" class="link" onclick={() => openUrl("https://aka.ms/MinecraftEULA")}>Minecraft EULA</button>      </span>
     </label>
 
     {#if error}<p class="alert">{error}</p>{/if}

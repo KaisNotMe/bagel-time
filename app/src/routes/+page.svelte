@@ -64,7 +64,7 @@
           <BagelLogo size={56} />
           <div>
             <h3>Let's get baking</h3>
-            <p class="muted">Create your first instance or grab a modpack to start playing.</p>
+            <p class="muted">Pick a Minecraft version or a modpack.</p>
           </div>
           <div class="welcome-actions">
             <button class="btn primary" onclick={() => ui.newInstance()}>
@@ -111,17 +111,16 @@
     <section>
       <div class="section-head">
         <h2 class="section-title">Servers</h2>
-        <button class="btn sm" onclick={() => hosting.open()}><Icon name="plus" size={14} /> Host a server</button>
+        {#if hosting.list.length || recentServers.length}
+          <button class="btn sm" onclick={() => hosting.open()}><Icon name="plus" size={14} /> Host a server</button>
+        {/if}
       </div>
       {#if hosting.list.length === 0 && recentServers.length === 0}
         <div class="welcome card">
           <span class="host-icon"><Icon name="users" size={28} /></span>
           <div>
             <h3>Play with friends</h3>
-            <p class="muted">
-              Host a server from one of your instances. Bagel Time sets it up, starts it and gives you an address to
-              send your friends. No port forwarding needed.
-            </p>
+            <p class="muted">Start a server and send friends the address.</p>
           </div>
           <div class="welcome-actions">
             <button class="btn primary" onclick={() => hosting.open()}><Icon name="server" size={16} /> Host a server</button>
@@ -152,7 +151,7 @@
     </section>
 
     {#if offline}
-      <p class="muted">Couldn't reach Modrinth. Popular modpacks and mods show up here when you're online.</p>
+      <p class="muted">You're offline, so popular modpacks can't load.</p>
     {:else}
       <section>
         <div class="section-head">

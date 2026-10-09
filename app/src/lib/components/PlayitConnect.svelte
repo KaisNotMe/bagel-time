@@ -68,13 +68,13 @@
       <b>Connect playit.gg (one time)</b>
       {#if step === "waiting"}
         <small>
-          Approve Bagel Time in the browser page that just opened. A free guest account is fine. Waiting…
+          Approve it in the browser page that opened (a guest account is fine).
           <button class="link" onclick={() => claim && openUrl(claim.url)}>Open it again</button>
         </small>
       {:else if step === "rejected"}
         <small class="bad">It wasn't approved. Press Connect to try again.</small>
       {:else}
-        <small>playit.gg gives your server a free address friends can join from anywhere, with no router setup.</small>
+        <small>Free. Gives your server an address friends can join.</small>
       {/if}
       {#if error}<small class="bad">{error}</small>{/if}
     </div>
