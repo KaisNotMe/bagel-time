@@ -16,6 +16,7 @@ mod launcher;
 pub mod libraries;
 pub mod loaders;
 pub mod logs;
+pub mod memory;
 pub mod meta;
 pub mod modrinth;
 pub mod cfpack;

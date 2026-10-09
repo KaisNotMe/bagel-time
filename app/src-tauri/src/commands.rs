@@ -262,6 +262,17 @@ pub async fn open_instance_folder(
         .map_err(err)
 }
 
+/// The memory Automatic would give an instance (or a new one when `id` is none).
+#[tauri::command]
+pub async fn recommended_memory(state: State<'_>, id: Option<String>) -> CmdResult<u32> {
+    let Some(id) = id else {
+        return Ok(bagel_core::memory::recommended_mb(0, bagel_core::memory::total_ram_mb()));
+    };
+    let instance = state.store.get(&id).await.map_err(err)?;
+    let dir = state.store.game_dir(&instance).map_err(err)?;
+    Ok(bagel_core::memory::recommended_for(&dir).await)
+}
+
 #[tauri::command]
 pub async fn get_settings(state: State<'_>) -> CmdResult<Settings> {
     Ok(Settings::load(state.launcher.paths()).await)

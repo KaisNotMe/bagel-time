@@ -42,6 +42,7 @@ export type VersionInfo = {
 
 export type Settings = {
   offlineUsername: string;
+  autoMemory: boolean;
   memoryMb: number;
   showSnapshots: boolean;
   javaArgs: string;
@@ -356,6 +357,7 @@ export const api = {
   readLogFile: (id: string, name: string) => invoke<string>("read_log_file", { id, name }),
 
   getSettings: () => invoke<Settings>("get_settings"),
+  recommendedMemory: (id: string | null) => invoke<number>("recommended_memory", { id }),
   saveSettings: (settings: Settings) => invoke<Settings>("save_settings", { settings }),
 
   searchProjects: (args: SearchArgs) => invoke<SearchResults>("search_projects", { args }),

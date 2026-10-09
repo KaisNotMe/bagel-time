@@ -162,7 +162,7 @@ impl HostStore {
         let port = (DEFAULT_PORT..DEFAULT_PORT + 100)
             .find(|p| !taken.contains(p))
             .unwrap_or(DEFAULT_PORT);
-        let server = HostedServer {
+        let mut server = HostedServer {
             id,
             name,
             game_version: new.game.minecraft.clone(),
@@ -190,6 +190,7 @@ impl HostStore {
             let instance = instances.get(instance_id).await?;
             skipped = copy_from_instance(instances, &instance, &dir, sources).await?;
         }
+        server.memory_mb = crate::memory::recommended_for(&dir).await;
         self.save(&server).await?;
         Ok(Created { server, skipped })
     }

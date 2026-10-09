@@ -80,6 +80,7 @@ pub fn run() {
             commands::list_log_files,
             commands::read_log_file,
             commands::get_settings,
+            commands::recommended_memory,
             commands::save_settings,
             commands::launch_instance,
             commands::stop_instance,

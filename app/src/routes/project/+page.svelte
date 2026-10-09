@@ -1,8 +1,4 @@
-    if (!target || !project || project.projectType === "modpack") return null;
-    const kind = project.projectType;
-    if (!acceptedLoaders(kind, target.loader)) return "Needs a mod loader";
-    return versionFits(v, kind, target.loader, target.gameVersion)
-      ? null<script lang="ts">
+<script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { page } from "$app/state";
   import {

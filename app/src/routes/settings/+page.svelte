@@ -113,11 +113,16 @@
 
       <section>
         <h2>Java & memory</h2>
-        <label class="field">
-          <span>Default maximum memory <b>{(settings.memoryMb / 1024).toFixed(1)} GB</b></span>
-          <input type="range" min="1024" max="16384" step="512" bind:value={settings.memoryMb} />
-          <small>Big modpacks want 6–8 GB.</small>
+        <label class="check">
+          <input type="checkbox" bind:checked={settings.autoMemory} />
+          Pick memory automatically <small class="muted">(recommended, based on mod count)</small>
         </label>
+        {#if !settings.autoMemory}
+          <label class="field">
+            <span>Maximum memory <b>{(settings.memoryMb / 1024).toFixed(1)} GB</b></span>
+            <input type="range" min="1024" max="16384" step="512" bind:value={settings.memoryMb} />
+          </label>
+        {/if}
         <label class="field">
           <span>Java arguments</span>
           <textarea

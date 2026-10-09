@@ -139,10 +139,15 @@ async fn run_game(
         None => Account::offline(&settings.offline_username),
     };
     let game_dir = state.store.game_dir(instance).map_err(|e| e.to_string())?;
+    let memory_mb = match instance.memory_mb {
+        Some(mb) => mb,
+        None if settings.auto_memory => bagel_core::memory::recommended_for(&game_dir).await,
+        None => settings.memory_mb,
+    };
     let options = LaunchOptions {
         account,
         game_dir: game_dir.clone(),
-        memory_mb: instance.memory_mb.unwrap_or(settings.memory_mb),
+        memory_mb,
         // Global arguments first so the instance's own can override them.
         extra_jvm_args: settings
             .java_args

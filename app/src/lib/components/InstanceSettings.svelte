@@ -29,6 +29,8 @@
   let name = $state("");
   let customMemory = $state(false);
   let memoryMb = $state(4096);
+  /** What the instance gets without custom memory, and where it comes from. */
+  let defaultMemory = $state<{ mb: number; auto: boolean } | null>(null);
   let javaArgs = $state("");
   let version = $state("");
   let loader = $state<Loader>("vanilla");
@@ -51,11 +53,23 @@
     if (open) untrack(reset);
   });
 
+  async function loadDefaultMemory() {
+    try {
+      const [settings, recommended] = await Promise.all([api.getSettings(), api.recommendedMemory(instance.id)]);
+      defaultMemory = settings.autoMemory ? { mb: recommended, auto: true } : { mb: settings.memoryMb, auto: false };
+      if (instance.memoryMb === null) memoryMb = defaultMemory.mb;
+    } catch {
+      defaultMemory = null;
+    }
+  }
+
   function reset() {
     tab = "general";
     name = instance.name;
     customMemory = instance.memoryMb !== null;
     memoryMb = instance.memoryMb ?? 4096;
+    defaultMemory = null;
+    loadDefaultMemory();
     javaArgs = instance.javaArgs ?? "";
     version = instance.gameVersion;
     loader = instance.loader;
@@ -233,10 +247,16 @@
           <input type="checkbox" bind:checked={customMemory} />
           Use custom memory for this instance
         </label>
-        <label class="field" class:disabled={!customMemory}>
-          <span>Maximum memory <b class="value">{(memoryMb / 1024).toFixed(1)} GB</b></span>
-          <input type="range" min="1024" max="16384" step="512" bind:value={memoryMb} disabled={!customMemory} />
-        </label>
+        {#if customMemory}
+          <label class="field">
+            <span>Maximum memory <b class="value">{(memoryMb / 1024).toFixed(1)} GB</b></span>
+            <input type="range" min="1024" max="16384" step="512" bind:value={memoryMb} />
+          </label>
+        {:else if defaultMemory}
+          <p class="muted">
+            {defaultMemory.auto ? "Automatic" : "From Settings"}: <b>{(defaultMemory.mb / 1024).toFixed(1)} GB</b>
+          </p>
+        {/if}
         <label class="field">
           <span>Java arguments</span>
           <textarea
@@ -357,9 +377,6 @@
   input[type="range"] {
     accent-color: var(--accent);
     width: 100%;
-  }
-  .disabled {
-    opacity: 0.55;
   }
   .mono {
     font-family: var(--mono);

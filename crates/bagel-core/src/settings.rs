@@ -9,7 +9,9 @@ use crate::paths::Paths;
 pub struct Settings {
     /// Name used until Microsoft login exists.
     pub offline_username: String,
-    /// Default max memory for instances that don't set their own.
+    /// Pick memory per instance from its mod count (see `memory`).
+    pub auto_memory: bool,
+    /// Max memory for instances without their own, when `auto_memory` is off.
     pub memory_mb: u32,
     pub show_snapshots: bool,
     /// Extra JVM arguments for every instance, space separated.
@@ -22,6 +24,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             offline_username: "Player".to_string(),
+            auto_memory: true,
             memory_mb: 4096,
             show_snapshots: false,
             java_args: String::new(),
@@ -60,6 +63,7 @@ mod tests {
 
         let s = Settings {
             offline_username: "Bagel".into(),
+            auto_memory: false,
             memory_mb: 6144,
             show_snapshots: true,
             java_args: String::new(),
@@ -74,6 +78,7 @@ mod tests {
         std::fs::write(paths.settings_file(), r#"{"memoryMb": 2048, "future": 1}"#).unwrap();
         let loaded = Settings::load(&paths).await;
         assert_eq!(loaded.memory_mb, 2048);
+        assert!(loaded.auto_memory, "older settings switch to automatic memory");
         assert_eq!(loaded.offline_username, "Player");
     }
 }
